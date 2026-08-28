@@ -1,0 +1,32 @@
+{
+    "description": "Step 3",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 9,
+                    "tag": "tara_s3_1410",
+                    "alias": "tara_s3_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Test Detection",
+                    "index": 0,
+                    "tag": "1138",
+                    "alias": "tara_testdet_btn_1410"
+                }
+            ],
+            "instruction": "Click on 'Test Detection' button to test the signal intensity",
+            "dim": false,
+            "type": "interact"
+        }
+    ]
+}

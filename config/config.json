@@ -1,6 +1,6 @@
 {
     "General": {
-        "app_name": "Pipeline creator",
+        "app_name": "Polymager TARA",
         "ui_scale_multiplier": 0.75,
         "preload_modules": true,
         "skip_import_validation": false
@@ -15,8 +15,8 @@
         "path": "ressources/icon.ico"
     },
     "Login": {
-        "enabled": false,
-        "default_mode": "dev"
+        "enabled": true,
+        "default_mode": "user"
     },
     "UI": {
         "theme_name": "DEFAULT",
@@ -35,11 +35,19 @@
         "show_console": true
     },
     "Paths": {
-        "working_directory": null,
+        "working_directory": "/experiments",
         "default_pipeline": null,
-        "default_automation_script": null,
+        "default_automation_script": "scripts/polymager_TARA_script.json",
         "show_loader_on_startup": true,
         "default_pipeline_folder": "pipelines",
         "default_scripts_folder": "scripts"
+    },
+    "Cameras": {
+        "IDS": {
+            "rotation": 90
+        },
+        "Alvium": {
+            "rotation": 90
+        }
     }
 }

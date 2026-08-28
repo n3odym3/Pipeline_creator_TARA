@@ -1,0 +1,1135 @@
+{
+    "is_relative": true,
+    "windows": [
+        {
+            "module": "Polymager.image_container.image_container_win",
+            "class_name": "ImageContainerWin",
+            "uuid": "183",
+            "pos": [
+                54.53125,
+                2.220577350111029
+            ],
+            "size": [
+                11.1328125,
+                47.890451517394524
+            ],
+            "visible": false,
+            "params": {
+                "label": "Image Container",
+                "folder_path": ""
+            },
+            "node_pos": [
+                231,
+                6
+            ],
+            "pinned": true
+        },
+        {
+            "module": "image_viewer.image_viewer_win",
+            "class_name": "Image_viewer_win",
+            "uuid": "185",
+            "pos": [
+                65.78125,
+                25.46262028127313
+            ],
+            "size": [
+                34.0625,
+                73.79718726868985
+            ],
+            "visible": false,
+            "params": {
+                "label": "Image Viewer",
+                "colorize": true,
+                "intensity_rescaling": true,
+                "fps_counter": true,
+                "image_export": true,
+                "image_depth": "12bit",
+                "show_scale": true
+            },
+            "node_pos": [
+                477,
+                10
+            ],
+            "pinned": true
+        },
+        {
+            "module": "Camera.ids.ids_win",
+            "class_name": "IDS_win",
+            "uuid": "590",
+            "pos": [
+                87.6953125,
+                2.220577350111029
+            ],
+            "size": [
+                12.1875,
+                23.0940044411547
+            ],
+            "visible": false,
+            "params": {
+                "label": "IDS Camera",
+                "width": 1280,
+                "height": 1024
+            },
+            "node_pos": [
+                52,
+                7
+            ],
+            "pinned": true
+        },
+        {
+            "module": "Polymager.Fluo_controller.fluo_controller_win",
+            "class_name": "FluoControllerWin",
+            "uuid": "841",
+            "pos": [
+                65.78125,
+                2.220577350111029
+            ],
+            "size": [
+                21.875,
+                22.723908216136195
+            ],
+            "visible": false,
+            "params": {
+                "label": "Fluo Controller"
+            },
+            "node_pos": [
+                20,
+                134
+            ],
+            "pinned": true
+        },
+        {
+            "module": "Polymager.roi_manager.roi_manager_win",
+            "class_name": "RoiManagerWin",
+            "uuid": "1767",
+            "pos": [
+                54.53125,
+                50.48112509252406
+            ],
+            "size": [
+                11.1328125,
+                48.704663212435236
+            ],
+            "visible": false,
+            "params": {
+                "label": "ROI Manager"
+            },
+            "node_pos": [
+                230,
+                308
+            ],
+            "pinned": true
+        },
+        {
+            "module": "plot.lineplot_win",
+            "class_name": "Lineplot_win",
+            "uuid": "1927",
+            "pos": [
+                0.078125,
+                24.944485566247224
+            ],
+            "size": [
+                54.296875,
+                74.38934122871946
+            ],
+            "visible": false,
+            "params": {
+                "label": "Lineplot",
+                "autoscale": true,
+                "smooth": false,
+                "smooth_window": 5,
+                "log_x": false
+            },
+            "node_pos": [
+                764,
+                224
+            ],
+            "pinned": true
+        },
+        {
+            "module": "Polymager.sequence_processor.sequence_processor_win",
+            "class_name": "SequenceProcessorWin",
+            "uuid": "476",
+            "pos": [
+                22.109375,
+                24.352331606217618
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "visible": false,
+            "params": {
+                "label": "Sequence processor"
+            },
+            "node_pos": [
+                232,
+                460
+            ],
+            "pinned": true
+        },
+        {
+            "module": "Polymager.sequence_processor.sequence_writer_win",
+            "class_name": "SequenceWriterWin",
+            "uuid": "500",
+            "pos": [
+                39.5703125,
+                2.220577350111029
+            ],
+            "size": [
+                14.726562500000002,
+                22.279792746113987
+            ],
+            "visible": false,
+            "params": {
+                "label": "Sequence writer"
+            },
+            "node_pos": [
+                23,
+                462
+            ],
+            "pinned": true
+        },
+        {
+            "module": "nodal_data_processor.nodal_data_processor_win",
+            "class_name": "NodalDataProcessorWin",
+            "uuid": "586",
+            "pos": [
+                0.078125,
+                2.29459659511473
+            ],
+            "size": [
+                25.8984375,
+                22.35381199111769
+            ],
+            "visible": false,
+            "params": {
+                "label": "Nodal Data Processor"
+            },
+            "pipeline": {
+                "version": "1.0",
+                "nodes": [],
+                "connections": []
+            },
+            "node_pos": [
+                482,
+                222
+            ],
+            "pinned": true
+        },
+        {
+            "module": "plot.matplot_win",
+            "class_name": "Matplot_win",
+            "uuid": "772",
+            "pos": [
+                24.453125,
+                11.250925240562546
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "visible": false,
+            "params": {
+                "plot_title": "Serie",
+                "xlabel": "Time",
+                "ylabel": "Intensity",
+                "dpi": 300,
+                "canvas_width": 1920,
+                "canvas_height": 1080,
+                "show_legend": true,
+                "use_seaborn": true
+            },
+            "node_pos": [
+                897,
+                227
+            ]
+        },
+        {
+            "module": "Polymager.TARA.fluo_selector.fluo_selector_win",
+            "class_name": "FluoSelectorWin",
+            "uuid": "1122",
+            "pos": [
+                26.015624999999996,
+                2.29459659511473
+            ],
+            "size": [
+                13.671875,
+                22.501850481125093
+            ],
+            "visible": false,
+            "params": {
+                "label": "Fluo Selector"
+            },
+            "node_pos": [
+                484,
+                376
+            ]
+        },
+        {
+            "module": "Polymager.TARA.TARA_agregator.tara_agregator_win",
+            "class_name": "TaraAggregatorWin",
+            "uuid": "1394",
+            "pos": [
+                4.0625,
+                52.627683197631384
+            ],
+            "size": [
+                37.8125,
+                34.27091043671355
+            ],
+            "visible": false,
+            "params": {
+                "label": "TARA Agregator"
+            },
+            "node_pos": [
+                467,
+                651
+            ]
+        },
+        {
+            "module": "Polymager.TARA.TARA_helper.tara_win",
+            "class_name": "TaraWin",
+            "uuid": "1410",
+            "pos": [
+                36.3671875,
+                33.67875647668394
+            ],
+            "size": [
+                28.7109375,
+                35.97335307179867
+            ],
+            "visible": true,
+            "params": {
+                "label": "TARA Interface",
+                "target_signal": 100,
+                "protocol_step": 0
+            },
+            "node_pos": [
+                183,
+                655
+            ]
+        },
+        {
+            "module": "Camera.Alvium.Alvium_win",
+            "class_name": "Alvium_win",
+            "uuid": "1448",
+            "pos": [
+                20.3125,
+                2.5906735751295336
+            ],
+            "size": [
+                14.531250000000002,
+                60.029607698001485
+            ],
+            "visible": false,
+            "params": {
+                "label": "Alvium Camera"
+            },
+            "node_pos": [
+                466,
+                825
+            ]
+        },
+        {
+            "module": "Polymager.image_container.image_container_win",
+            "class_name": "ImageContainerWin",
+            "uuid": "1638",
+            "pos": [
+                0.15625,
+                39.00814211695041
+            ],
+            "size": [
+                20.0,
+                60.76980014803849
+            ],
+            "visible": false,
+            "params": {
+                "label": "Image Container",
+                "folder_path": "G:/Mon Drive/LABO/LabMeeting/data/Corals"
+            },
+            "node_pos": [
+                655,
+                827
+            ]
+        },
+        {
+            "module": "computer_vision.sam_interactive.sam_interactive_win",
+            "class_name": "SamInteractiveWin",
+            "uuid": "1757",
+            "pos": [
+                20.2734375,
+                2.5906735751295336
+            ],
+            "size": [
+                32.9296875,
+                64.69282013323465
+            ],
+            "visible": false,
+            "params": {
+                "label": "SAM Interactive"
+            },
+            "node_pos": [
+                863,
+                832
+            ]
+        },
+        {
+            "module": "Polymager.TARA.TARA_color_agregator.tara_color_agregator_win",
+            "class_name": "TaraColorAggregatorWin",
+            "uuid": "1801",
+            "pos": [
+                20.234375,
+                67.50555144337528
+            ],
+            "size": [
+                79.4140625,
+                32.12435233160622
+            ],
+            "visible": false,
+            "params": {
+                "label": "TARA Color Agregator"
+            },
+            "node_pos": [
+                789,
+                675
+            ]
+        },
+        {
+            "module": "computer_vision.color_mapper.color_mapper_win",
+            "class_name": "ColorMapperWin",
+            "uuid": "1820",
+            "pos": [
+                53.3203125,
+                2.4426350851221317
+            ],
+            "size": [
+                32.578125,
+                65.13693560325684
+            ],
+            "visible": false,
+            "params": {
+                "label": "Color Mapper"
+            },
+            "node_pos": [
+                1082,
+                829
+            ]
+        },
+        {
+            "module": "plot.color_pie_win",
+            "class_name": "ColorPieWin",
+            "uuid": "2203",
+            "pos": [
+                85.9765625,
+                2.4426350851221317
+            ],
+            "size": [
+                13.945312500000002,
+                26.27683197631384
+            ],
+            "visible": false,
+            "params": {
+                "label": "Color Distribution Plot"
+            },
+            "node_pos": [
+                1261,
+                831
+            ]
+        }
+    ],
+    "connections": [
+        {
+            "from": "183",
+            "output": "Frame",
+            "to": "185"
+        },
+        {
+            "from": "183",
+            "output": "Frame",
+            "to": "1122"
+        },
+        {
+            "from": "183",
+            "output": "Result",
+            "to": "586"
+        },
+        {
+            "from": "183",
+            "output": "Result",
+            "to": "1410"
+        },
+        {
+            "from": "183",
+            "output": "Folder",
+            "to": "476"
+        },
+        {
+            "from": "183",
+            "output": "Folder",
+            "to": "500"
+        },
+        {
+            "from": "183",
+            "output": "Group",
+            "to": "500"
+        },
+        {
+            "from": "183",
+            "output": "CMD",
+            "to": "590"
+        },
+        {
+            "from": "183",
+            "output": "CMD",
+            "to": "185"
+        },
+        {
+            "from": "183",
+            "output": "CMD",
+            "to": "185"
+        },
+        {
+            "from": "183",
+            "output": "CMD",
+            "to": "1767"
+        },
+        {
+            "from": "183",
+            "output": "ROI",
+            "to": "185"
+        },
+        {
+            "from": "183",
+            "output": "ROI",
+            "to": "1767"
+        },
+        {
+            "from": "185",
+            "output": "ROI Data",
+            "to": "1767"
+        },
+        {
+            "from": "590",
+            "output": "12bit frame",
+            "to": "183"
+        },
+        {
+            "from": "590",
+            "output": "12bit frame",
+            "to": "1410"
+        },
+        {
+            "from": "841",
+            "output": "control",
+            "to": "183"
+        },
+        {
+            "from": "841",
+            "output": "control",
+            "to": "590"
+        },
+        {
+            "from": "1767",
+            "output": "Updates",
+            "to": "185"
+        },
+        {
+            "from": "1767",
+            "output": "Updates",
+            "to": "183"
+        },
+        {
+            "from": "1767",
+            "output": "CMD",
+            "to": "185"
+        },
+        {
+            "from": "1767",
+            "output": "CMD",
+            "to": "1927"
+        },
+        {
+            "from": "1927",
+            "output": "CMD",
+            "to": "772"
+        },
+        {
+            "from": "476",
+            "output": "CMD dict",
+            "to": "590"
+        },
+        {
+            "from": "476",
+            "output": "CMD dict",
+            "to": "183"
+        },
+        {
+            "from": "476",
+            "output": "CMD dict",
+            "to": "841"
+        },
+        {
+            "from": "476",
+            "output": "Trigger",
+            "to": "1410"
+        },
+        {
+            "from": "500",
+            "output": "Sequence",
+            "to": "476"
+        },
+        {
+            "from": "586",
+            "output": "Processed Data",
+            "to": "1927"
+        },
+        {
+            "from": "586",
+            "output": "Processed Data",
+            "to": "1394"
+        },
+        {
+            "from": "1122",
+            "output": "FvFm",
+            "to": "185"
+        },
+        {
+            "from": "1122",
+            "output": "ROI",
+            "to": "1767"
+        },
+        {
+            "from": "1410",
+            "output": "Fluo CMD",
+            "to": "841"
+        },
+        {
+            "from": "1410",
+            "output": "Fluo CMD",
+            "to": "183"
+        },
+        {
+            "from": "1410",
+            "output": "Frame",
+            "to": "185"
+        },
+        {
+            "from": "1410",
+            "output": "Fluo CMD",
+            "to": "590"
+        },
+        {
+            "from": "1410",
+            "output": "Fluo CMD",
+            "to": "476"
+        },
+        {
+            "from": "1410",
+            "output": "VBA CMD",
+            "to": "1448"
+        },
+        {
+            "from": "1410",
+            "output": "VBA CMD",
+            "to": "1638"
+        },
+        {
+            "from": "1410",
+            "output": "VBA CMD",
+            "to": "1757"
+        },
+        {
+            "from": "1410",
+            "output": "Metadata",
+            "to": "1394"
+        },
+        {
+            "from": "1410",
+            "output": "Metadata",
+            "to": "1801"
+        },
+        {
+            "from": "1410",
+            "output": "Protocol File",
+            "to": "500"
+        },
+        {
+            "from": "1410",
+            "output": "Folder Fluo",
+            "to": "1394"
+        },
+        {
+            "from": "1410",
+            "output": "Folder Fluo",
+            "to": "183"
+        },
+        {
+            "from": "1410",
+            "output": "Folder VBA",
+            "to": "1638"
+        },
+        {
+            "from": "1410",
+            "output": "Folder VBA",
+            "to": "1801"
+        },
+        {
+            "from": "1448",
+            "output": "Frame",
+            "to": "1638"
+        },
+        {
+            "from": "1638",
+            "output": "Frame",
+            "to": "1757"
+        },
+        {
+            "from": "1757",
+            "output": "Result",
+            "to": "1820"
+        },
+        {
+            "from": "1820",
+            "output": "Distribution",
+            "to": "1801"
+        },
+        {
+            "from": "1820",
+            "output": "Distribution",
+            "to": "2203"
+        },
+        {
+            "from": "1638",
+            "output": "Folder",
+            "to": "1820"
+        },
+        {
+            "from": "1638",
+            "output": "Image Name",
+            "to": "1820"
+        },
+        {
+            "from": "183",
+            "output": "Folder",
+            "to": "1122"
+        },
+        {
+            "from": "183",
+            "output": "Group",
+            "to": "1122"
+        },
+        {
+            "from": "183",
+            "output": "CMD",
+            "to": "1122"
+        },
+        {
+            "from": "1820",
+            "output": "CMD",
+            "to": "1757"
+        }
+    ],
+    "views": {
+        "new_exp": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        36.3671875,
+                        33.734939759036145
+                    ],
+                    "size": [
+                        28.7109375,
+                        36.01070950468541
+                    ]
+                }
+            ]
+        },
+        "calibration": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "185",
+                    "label": "Image Viewer",
+                    "pos": [
+                        48.5546875,
+                        2.5435073627844713
+                    ],
+                    "size": [
+                        51.48437500000001,
+                        97.12182061579652
+                    ]
+                },
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        0.234375,
+                        2.4096385542168677
+                    ],
+                    "size": [
+                        22.96875,
+                        26.03748326639893
+                    ]
+                }
+            ]
+        },
+        "sequence": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "185",
+                    "label": "Image Viewer",
+                    "pos": [
+                        65.703125,
+                        28.57142857142857
+                    ],
+                    "size": [
+                        34.140625,
+                        71.13249444855663
+                    ]
+                },
+                {
+                    "uuid": "476",
+                    "label": "Sequence processor",
+                    "pos": [
+                        0.234375,
+                        28.71946706143597
+                    ],
+                    "size": [
+                        65.3125,
+                        70.91043671354552
+                    ]
+                },
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        0.234375,
+                        2.3686158401184305
+                    ],
+                    "size": [
+                        22.96875,
+                        26.054774241302738
+                    ]
+                }
+            ]
+        },
+        "sample_selection": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "183",
+                    "label": "Image Container",
+                    "pos": [
+                        54.41406250000001,
+                        2.4426350851221317
+                    ],
+                    "size": [
+                        11.25,
+                        45.59585492227979
+                    ]
+                },
+                {
+                    "uuid": "185",
+                    "label": "Image Viewer",
+                    "pos": [
+                        65.8203125,
+                        28.423390081421168
+                    ],
+                    "size": [
+                        34.0234375,
+                        71.28053293856402
+                    ]
+                },
+                {
+                    "uuid": "1767",
+                    "label": "ROI Manager",
+                    "pos": [
+                        54.453125,
+                        48.26054774241303
+                    ],
+                    "size": [
+                        11.1328125,
+                        51.14729829755736
+                    ]
+                },
+                {
+                    "uuid": "1122",
+                    "label": "Fluo Selector",
+                    "pos": [
+                        65.8203125,
+                        2.29459659511473
+                    ],
+                    "size": [
+                        34.0625,
+                        25.75869726128793
+                    ]
+                },
+                {
+                    "uuid": "1394",
+                    "label": "TARA Agregator",
+                    "pos": [
+                        0.1953125,
+                        48.26054774241303
+                    ],
+                    "size": [
+                        54.1015625,
+                        52.03552923760177
+                    ]
+                },
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        0.234375,
+                        2.3686158401184305
+                    ],
+                    "size": [
+                        22.96875,
+                        45.74389341228719
+                    ]
+                }
+            ]
+        },
+        "VBA_adjustment": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        0.15625,
+                        2.610441767068273
+                    ],
+                    "size": [
+                        20.0,
+                        36.07764390896921
+                    ]
+                },
+                {
+                    "uuid": "1757",
+                    "label": "SAM Interactive",
+                    "pos": [
+                        20.2734375,
+                        2.5435073627844713
+                    ],
+                    "size": [
+                        49.8828125,
+                        97.59036144578313
+                    ]
+                }
+            ]
+        },
+        "VBA": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        0.15625,
+                        2.610441767068273
+                    ],
+                    "size": [
+                        20.0,
+                        36.01070950468541
+                    ]
+                },
+                {
+                    "uuid": "1638",
+                    "label": "Image Container",
+                    "pos": [
+                        0.15625,
+                        38.95582329317269
+                    ],
+                    "size": [
+                        20.0,
+                        60.7095046854083
+                    ]
+                },
+                {
+                    "uuid": "1757",
+                    "label": "SAM Interactive",
+                    "pos": [
+                        20.2734375,
+                        2.5435073627844713
+                    ],
+                    "size": [
+                        49.8828125,
+                        97.59036144578313
+                    ]
+                }
+            ]
+        },
+        "VBA_post_process": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "1410",
+                    "label": "TARA Interface",
+                    "pos": [
+                        0.234375,
+                        2.4096385542168677
+                    ],
+                    "size": [
+                        20.0390625,
+                        45.58232931726908
+                    ]
+                },
+                {
+                    "uuid": "1638",
+                    "label": "Image Container",
+                    "pos": [
+                        0.15625,
+                        47.85809906291834
+                    ],
+                    "size": [
+                        20.0,
+                        51.80722891566265
+                    ]
+                },
+                {
+                    "uuid": "1757",
+                    "label": "SAM Interactive",
+                    "pos": [
+                        20.2734375,
+                        2.5435073627844713
+                    ],
+                    "size": [
+                        32.9296875,
+                        64.65863453815261
+                    ]
+                },
+                {
+                    "uuid": "1801",
+                    "label": "TARA Color Agregator",
+                    "pos": [
+                        20.234375,
+                        67.46987951807229
+                    ],
+                    "size": [
+                        79.4140625,
+                        31.994645247657296
+                    ]
+                },
+                {
+                    "uuid": "1820",
+                    "label": "Color Mapper",
+                    "pos": [
+                        53.3203125,
+                        2.4096385542168677
+                    ],
+                    "size": [
+                        32.578125,
+                        65.12717536813922
+                    ]
+                },
+                {
+                    "uuid": "2203",
+                    "label": "Color Distribution Plot",
+                    "pos": [
+                        85.9765625,
+                        2.4096385542168677
+                    ],
+                    "size": [
+                        13.945312500000002,
+                        26.238286479250334
+                    ]
+                }
+            ]
+        },
+        "Fluo_expert_processing": {
+            "is_relative": true,
+            "windows": [
+                {
+                    "uuid": "183",
+                    "label": "Image Container",
+                    "pos": [
+                        54.41406250000001,
+                        2.4096385542168677
+                    ],
+                    "size": [
+                        11.25,
+                        45.58232931726908
+                    ]
+                },
+                {
+                    "uuid": "185",
+                    "label": "Image Viewer",
+                    "pos": [
+                        65.8203125,
+                        28.380187416331992
+                    ],
+                    "size": [
+                        34.0234375,
+                        71.2182061579652
+                    ]
+                },
+                {
+                    "uuid": "1767",
+                    "label": "ROI Manager",
+                    "pos": [
+                        54.453125,
+                        48.25970548862115
+                    ],
+                    "size": [
+                        11.2109375,
+                        51.137884872824635
+                    ]
+                },
+                {
+                    "uuid": "1927",
+                    "label": "Lineplot",
+                    "pos": [
+                        0.078125,
+                        24.899598393574294
+                    ],
+                    "size": [
+                        54.296875,
+                        74.36412315930389
+                    ]
+                },
+                {
+                    "uuid": "586",
+                    "label": "Nodal Data Processor",
+                    "pos": [
+                        0.078125,
+                        2.2757697456492636
+                    ],
+                    "size": [
+                        54.17968749999999,
+                        22.356091030789827
+                    ]
+                },
+                {
+                    "uuid": "1122",
+                    "label": "Fluo Selector",
+                    "pos": [
+                        65.8203125,
+                        2.2757697456492636
+                    ],
+                    "size": [
+                        34.0625,
+                        25.702811244979916
+                    ]
+                },
+                {
+                    "uuid": "1394",
+                    "label": "TARA Agregator",
+                    "pos": [
+                        0.1953125,
+                        48.25970548862115
+                    ],
+                    "size": [
+                        54.1015625,
+                        52.00803212851406
+                    ]
+                }
+            ]
+        }
+    }
+}

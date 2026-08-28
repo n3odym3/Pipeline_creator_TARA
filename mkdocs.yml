@@ -74,9 +74,19 @@ nav:
           - csv_reader_win: modules/Basic/csv_reader_win.md
           - test_sample_win: modules/Basic/test_sample_win.md
           - text_viewer_win: modules/Basic/text_viewer_win.md
-      - Plot:
-          - lineplot_win: modules/Plot/lineplot_win.md
-          - sample_container_win: modules/Plot/sample_container_win.md
+      - Camera:
+          - Alvium:
+              - Alvium: modules/Camera/Alvium/Alvium.md
+          - ids:
+              - ids: modules/Camera/ids/ids.md
+      - Parallel_viewport:
+          - plot_viewer:
+              - parallel_plot_win: modules/Parallel_viewport/plot_viewer/parallel_plot_win.md
+          - text_viewer:
+              - parallel_text_viewer_win: modules/Parallel_viewport/text_viewer/parallel_text_viewer_win.md
+      - plot:
+          - lineplot_win: modules/plot/lineplot_win.md
+          - sample_container_win: modules/plot/sample_container_win.md
   # [DYNAMIC_MODULES_END]
 
   - Architecture:

@@ -1,0 +1,86 @@
+{
+    "description": "Step 2",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 9,
+                    "tag": "tara_s2_1410",
+                    "alias": "tara_s2_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 1,
+                    "tag": "1142",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Find best expos",
+                    "index": 0,
+                    "tag": "1145",
+                    "alias": "tara_find_best_exp_1410"
+                }
+            ],
+            "instruction": "Click on 'Find best expos' button to start the auto-exposure. A series of detections will be performed",
+            "dim": true,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Image Viewer",
+                    "tag": 773,
+                    "alias": "Image Viewer_185"
+                }
+            ],
+            "instruction": "Select the dimmest area of your sample using CTRL + Left Click",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 9,
+                    "tag": "tara_s2_1410",
+                    "alias": "tara_s2_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 2,
+                    "tag": "1146",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvInputInt",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1148",
+                    "alias": "tara_best_exp_int_1410"
+                }
+            ],
+            "instruction": "The software automatically suggested an exposure time to reach the target signal intensity",
+            "dim": true,
+            "type": "observe"
+        }
+    ]
+}

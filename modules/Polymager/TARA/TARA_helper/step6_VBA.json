@@ -1,0 +1,258 @@
+{
+    "description": "",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": 1135,
+                    "alias": "TARA Interface_1410"
+                }
+            ],
+            "instruction": "Fill the experiment metadata",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s6_1410",
+                    "alias": "tara_s6_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Save Metadata",
+                    "index": 0,
+                    "tag": "1241",
+                    "alias": "tara_save_meta_1410"
+                }
+            ],
+            "instruction": "Export the metadata",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "SAM Interactive",
+                    "tag": 1355,
+                    "alias": "SAM Interactive_1757"
+                }
+            ],
+            "instruction": "Select a sample using CTRL + Left Click (sometimes multiple clicks on different parts of the sample are required)",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "SAM Interactive",
+                    "tag": 1355,
+                    "alias": "SAM Interactive_1757"
+                }
+            ],
+            "instruction": "If parts of the background are incorrectly selected, remove them by adding a negative point (CTRL + Right Click)",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "SAM Interactive",
+                    "tag": "SAM Interactive_1757",
+                    "alias": "SAM Interactive_1757"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1356",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Reset Points",
+                    "index": 0,
+                    "tag": "1357",
+                    "alias": "sam_reset_1757"
+                }
+            ],
+            "instruction": "You can reset the selection at any time",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Color Mapper",
+                    "tag": 1383,
+                    "alias": "Color Mapper_1820"
+                }
+            ],
+            "instruction": "The isolated sample will appear here",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Color Distribution Plot",
+                    "tag": 1751,
+                    "alias": "Color Distribution Plot_2203"
+                }
+            ],
+            "instruction": "The color distribution will appear here",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Color Mapper",
+                    "tag": "Color Mapper_1820",
+                    "alias": "Color Mapper_1820"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 3,
+                    "tag": "1403",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvInputText",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1405",
+                    "alias": "mapper_sample_name_1820"
+                }
+            ],
+            "instruction": "If the selection is correct, provide a name for the sample",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Color Mapper",
+                    "tag": "Color Mapper_1820",
+                    "alias": "Color Mapper_1820"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 3,
+                    "tag": "1403",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Save to Agregator",
+                    "index": 0,
+                    "tag": "1406",
+                    "alias": "mapper_save_btn_1820"
+                }
+            ],
+            "instruction": "Then save the result to the aggregator",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Color Agregator",
+                    "tag": 1370,
+                    "alias": "TARA Color Agregator_1801"
+                }
+            ],
+            "instruction": "A new row will appear (you can edit or remove the sample from there)",
+            "dim": false,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "SAM Interactive",
+                    "tag": 1355,
+                    "alias": "SAM Interactive_1757"
+                }
+            ],
+            "instruction": "Repeat the selection process for the next sample",
+            "dim": false,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Color Mapper",
+                    "tag": "Color Mapper_1820",
+                    "alias": "Color Mapper_1820"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 3,
+                    "tag": "1403",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvInputText",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1405",
+                    "alias": "mapper_sample_name_1820"
+                }
+            ],
+            "instruction": "Name the sample, save it, then select another and repeat",
+            "dim": true,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Color Agregator",
+                    "tag": "TARA Color Agregator_1801",
+                    "alias": "TARA Color Agregator_1801"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1371",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Export CSV",
+                    "index": 0,
+                    "tag": "1375",
+                    "alias": ""
+                }
+            ],
+            "instruction": "Save the experiment once all samples have been processed",
+            "dim": false,
+            "type": "interact"
+        }
+    ]
+}

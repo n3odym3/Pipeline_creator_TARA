@@ -1,0 +1,93 @@
+{
+    "description": "",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s4_1410",
+                    "alias": "tara_s4_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvCombo",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1184",
+                    "alias": "tara_protocol_combo_1410"
+                }
+            ],
+            "instruction": "Select the protocol",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s4_1410",
+                    "alias": "tara_s4_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 1,
+                    "tag": "1187",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvInputText",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1189",
+                    "alias": "tara_group_name_1410"
+                }
+            ],
+            "instruction": "Enter a group name (this will be used to filter and distinguish experiments within the same folder)",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s4_1410",
+                    "alias": "tara_s4_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Set Protocol",
+                    "index": 0,
+                    "tag": "1190",
+                    "alias": "tara_run_protocol_1410"
+                }
+            ],
+            "instruction": "Set the protocol",
+            "dim": false,
+            "type": "interact"
+        }
+    ]
+}

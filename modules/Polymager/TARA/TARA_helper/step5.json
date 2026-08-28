@@ -1,0 +1,85 @@
+{
+    "description": "",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s5_1410",
+                    "alias": "tara_s5_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Start sequence",
+                    "index": 0,
+                    "tag": "1195",
+                    "alias": "tara_start_seq_1410"
+                }
+            ],
+            "instruction": "Start the sequence",
+            "dim": true,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Sequence processor",
+                    "tag": 948,
+                    "alias": "Sequence processor_476"
+                }
+            ],
+            "instruction": "This window will display the progress of the sequence",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Sequence processor",
+                    "tag": "Sequence processor_476",
+                    "alias": "Sequence processor_476"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 0,
+                    "tag": "949",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "KILL seq.",
+                    "index": 0,
+                    "tag": "951",
+                    "alias": "seq_kill_476"
+                }
+            ],
+            "instruction": "You can cancel the current sequence at any time (already captured images will remain saved on the selected folder)",
+            "dim": true,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Image Viewer",
+                    "tag": 791,
+                    "alias": "Image Viewer_185"
+                }
+            ],
+            "instruction": "The latest captured image will appear in this window",
+            "dim": true,
+            "type": "observe"
+        }
+    ]
+}

@@ -1,0 +1,52 @@
+{
+    "name": "Test Startup",
+    "steps": [
+        {
+            "action": "fullscreen"
+        },
+        {
+            "action": "load_pipeline",
+            "path": "/layouts/polymager_TARA.json"
+        },
+        {
+            "action": "send_command",
+            "module_uuid": "590",
+            "command": {
+                "init": true
+            }
+        },
+        {
+            "action": "send_command",
+            "module_uuid": "1448",
+            "command": {
+                "init": true
+            }
+        },
+        {
+            "action": "send_command",
+            "module_uuid": "841",
+            "command": {
+                "connect": true
+            }
+        },
+        {
+            "action": "send_command",
+            "module_uuid": "1757",
+            "command": {
+                "enabled": false
+            }
+        },
+        {
+            "action": "send_command",
+            "module_uuid": "586",
+            "module_type": "NodalDataProcessor_win",
+            "command": {
+                "load_flow": "/modules/nodal_data_processor/flows/FvFm.json"
+            }
+        },
+        {
+            "action": "apply_view",
+            "view_name": "new_exp"
+        }
+    ]
+}

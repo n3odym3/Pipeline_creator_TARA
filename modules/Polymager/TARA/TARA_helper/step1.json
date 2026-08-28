@@ -1,0 +1,127 @@
+{
+    "description": "",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 12,
+                    "tag": "tara_s1_1410",
+                    "alias": "tara_s1_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 1,
+                    "tag": "1159",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Select Master Folder",
+                    "index": 0,
+                    "tag": "1160",
+                    "alias": "tara_master_folder_1410"
+                }
+            ],
+            "instruction": "For a new CBASS experiment, select the master directory (it will contain ALL data from T0, T1, T2 for all tanks)",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 12,
+                    "tag": "tara_s1_1410",
+                    "alias": "tara_s1_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvInputText",
+                    "label": "Date (YYYYMMDD)",
+                    "index": 0,
+                    "tag": "1166",
+                    "alias": "tara_main_subfolder_1410"
+                }
+            ],
+            "instruction": "Select today's date in YYYYMMDD format",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 12,
+                    "tag": "tara_s1_1410",
+                    "alias": "tara_s1_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Create Date Folder (FvFm + SuperSeq)",
+                    "index": 0,
+                    "tag": "1168",
+                    "alias": "tara_create_subfolders_1410"
+                }
+            ],
+            "instruction": "Click this button, it will automatically create the relevant subfolders",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 12,
+                    "tag": "tara_s1_1410",
+                    "alias": "tara_s1_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 3,
+                    "tag": "1174",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Select Working Folder",
+                    "index": 0,
+                    "tag": "1175",
+                    "alias": "tara_working_folder_1410"
+                }
+            ],
+            "instruction": "For each new measurement, reselect the FvFm or SuperSeq folder (if a master folder has already been created for this CBASS, ONLY perform this step)",
+            "dim": false,
+            "type": "interact"
+        }
+    ]
+}

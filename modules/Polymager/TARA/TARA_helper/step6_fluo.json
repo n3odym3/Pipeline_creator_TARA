@@ -1,0 +1,313 @@
+{
+    "description": "",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": 1135,
+                    "alias": "TARA Interface_1410"
+                }
+            ],
+            "instruction": "Fill the experiment metadata",
+            "dim": true,
+            "type": "observe"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s6_1410",
+                    "alias": "tara_s6_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Save Metadata",
+                    "index": 0,
+                    "tag": "1241",
+                    "alias": "tara_save_meta_1410"
+                }
+            ],
+            "instruction": "Export the metadata",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Image Container",
+                    "tag": "Image Container_183",
+                    "alias": "Image Container_183"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 1,
+                    "tag": "733",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvCombo",
+                    "label": "",
+                    "index": 0,
+                    "tag": "735",
+                    "alias": "ic_group_combo_183"
+                }
+            ],
+            "instruction": "Select the experiment group",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Image Container",
+                    "tag": 727,
+                    "alias": "Image Container_183"
+                }
+            ],
+            "instruction": "Select the F0 and the Fm images",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Fluo Selector",
+                    "tag": "Fluo Selector_1122",
+                    "alias": "Fluo Selector_1122"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 2,
+                    "tag": "1049",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvDragInt",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1053",
+                    "alias": "fsel_fm_min_1122"
+                }
+            ],
+            "instruction": "Adjust the threshold to isolate the samples",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Fluo Selector",
+                    "tag": "Fluo Selector_1122",
+                    "alias": "Fluo Selector_1122"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 2,
+                    "tag": "1049",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1050",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "COMPARE",
+                    "index": 0,
+                    "tag": "1052",
+                    "alias": "fsel_compare_btn_1122"
+                }
+            ],
+            "instruction": "Verify the selection",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Fluo Selector",
+                    "tag": "Fluo Selector_1122",
+                    "alias": "Fluo Selector_1122"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 3,
+                    "tag": "1057",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1058",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvInputInt",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1061",
+                    "alias": "fsel_min_area_1122"
+                }
+            ],
+            "instruction": "You can increase the surface threshold to remove false positives",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Fluo Selector",
+                    "tag": "Fluo Selector_1122",
+                    "alias": "Fluo Selector_1122"
+                },
+                {
+                    "type": "mvAppItemType::mvCollapsingHeader",
+                    "label": "Advanced Options",
+                    "index": 0,
+                    "tag": "1068",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvCombo",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1070",
+                    "alias": "fsel_seg_mode_1122"
+                }
+            ],
+            "instruction": "If the FvFm is too low to perform the sample detection, you can switch to the raw fluo segmentation",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Image Viewer",
+                    "tag": 759,
+                    "alias": "Image Viewer_185"
+                }
+            ],
+            "instruction": "If the automatic segmentation does not work, you can manually select a sample using CTRL+LEFT CLICK. Use this ONLY as a last resort if the automatic mode is not working!",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "Fluo Selector",
+                    "tag": "Fluo Selector_1122",
+                    "alias": "Fluo Selector_1122"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 4,
+                    "tag": "1064",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Export",
+                    "index": 0,
+                    "tag": "1065",
+                    "alias": "fsel_export_roi_1122"
+                }
+            ],
+            "instruction": "Verify that the detected samples match the expected amount, then export the selection",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "ROI Manager",
+                    "tag": 889,
+                    "alias": "ROI Manager_1767"
+                }
+            ],
+            "instruction": "Hover the checkboxes with your cursor to highlight the samples and confirm their location. You can move or remove samples as needed",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "ROI Manager",
+                    "tag": 889,
+                    "alias": "ROI Manager_1767"
+                }
+            ],
+            "instruction": "If needed, move or remove the samples",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Agregator",
+                    "tag": 1175,
+                    "alias": "TARA Agregator_1770"
+                }
+            ],
+            "instruction": "Verify and modify the values if needed. Don't forget to fill the Genotype column !",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Agregator",
+                    "tag": "TARA Agregator_1394",
+                    "alias": "TARA Agregator_1394"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1129",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Export CSV",
+                    "index": 0,
+                    "tag": "1133",
+                    "alias": ""
+                }
+            ],
+            "instruction": "Save the experiment results",
+            "dim": false,
+            "type": "interact"
+        }
+    ]
+}

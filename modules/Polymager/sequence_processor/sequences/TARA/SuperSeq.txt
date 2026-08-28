@@ -1,0 +1,22 @@
+var wait_time=5s,
+
+R,
+V,10s,FR50,5s,FR0,1s,V,10s,FR50,5s,FR0,1s,
+[X=0,X+10,20](OJIP det_time 512 X,wait_time),
+[X=200,X+50,16](OJIP det_time 512 X,wait_time),
+[X=1000,X+100,10](OJIP det_time 512 X,wait_time),
+[X=2000,X+500,16](OJIP det_time 512 X,wait_time),
+[X=10000,X+1000,15](OJIP det_time 512 X,wait_time),
+[X=25000,X+5000,15](OJIP det_time 512 X,wait_time),
+[X=100000,X+10000,20](OJIP det_time 512 X,wait_time),
+[X=300000,X+100000,7](OJIP det_time 512 X,wait_time),
+[X=1000000,X+500000,3](OJIP det_time 512 X,wait_time),
+wait_time,FR50,5s,FR0,1s,V,
+
+A30,10S,V,4(A30,30S,V),10(D),20(D,250MS),20(D,500MS),10(D,1S),FR50,5S,FR0,1S,V,
+A60,10S,V,4(A60,30S,V),10(D),20(D,250MS),20(D,500MS),10(D,1S),FR50,5S,FR0,1S,V,
+A120,10S,V,4(A120,30S,V),10(D),20(D,250MS),20(D,500MS),10(D,1S),FR50,5S,FR0,1S,V,
+A250,10S,V,4(A250,30S,V),10(D),20(D,250MS),20(D,500MS),10(D,1S),FR50,5S,FR0,1S,V,
+A500,10S,V,4(A500,30S,V),10(D),20(D,250MS),20(D,500MS),10(D,1S),FR50,5S,FR0,1S,V,
+A750,10S,V,4(A750,30S,V),10(D),20(D,250MS),20(D,500MS),10(D,1S),FR50,5S,FR0,1S,V,
+10(V,60S),FR50,5s,FR0,1s,V

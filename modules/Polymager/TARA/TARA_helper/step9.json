@@ -1,0 +1,79 @@
+{
+    "description": "",
+    "steps": [
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s9_1410",
+                    "alias": "tara_s9_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 1,
+                    "tag": "1262",
+                    "alias": ""
+                },
+                {
+                    "type": "mvAppItemType::mvInputText",
+                    "label": "",
+                    "index": 0,
+                    "tag": "1264",
+                    "alias": "tara_img_name_1410"
+                }
+            ],
+            "instruction": "Enter a group name (this will be used to filter and distinguish experiments within the same folder)",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "TARA Interface",
+                    "tag": "TARA Interface_1410",
+                    "alias": "TARA Interface_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvGroup",
+                    "label": "",
+                    "index": 10,
+                    "tag": "tara_s9_1410",
+                    "alias": "tara_s9_1410"
+                },
+                {
+                    "type": "mvAppItemType::mvButton",
+                    "label": "Take Picture",
+                    "index": 0,
+                    "tag": "1265",
+                    "alias": "tara_take_picture_1410"
+                }
+            ],
+            "instruction": "Take a picture",
+            "dim": false,
+            "type": "interact"
+        },
+        {
+            "path": [
+                {
+                    "type": "mvAppItemType::mvWindowAppItem",
+                    "label": "SAM Interactive",
+                    "tag": 1355,
+                    "alias": "SAM Interactive_1757"
+                }
+            ],
+            "instruction": "The image should appear and update here",
+            "dim": true,
+            "type": "observe"
+        }
+    ]
+}

@@ -1,0 +1,124 @@
+{
+    "Project": {
+        "default": "TARA",
+        "options": [
+            "TARA"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Date": {
+        "default": null,
+        "editable": false,
+        "keep": true
+    },
+    "Country": {
+        "default": "PNG",
+        "options": [
+            "PNG",
+            "FJI",
+            "AUS"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Latitude": {
+        "default": "-5.230260",
+        "editable": false,
+        "keep": true
+    },
+    "Longitude": {
+        "default": "150.097491",
+        "editable": false,
+        "keep": true
+    },
+    "Site": {
+        "default": "KMB",
+        "options": [
+            "KMB",
+            "RAJ",
+            "PLU",
+            "MIN",
+            "PLW",
+            "BNG",
+            "LMB",
+            "SBH",
+            "TRG",
+            "AND"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Species": {
+        "default": "ACR",
+        "options": [
+            "ACR",
+            "MI",
+            "POC",
+            "POR"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Position_ID": {
+        "default": null,
+        "show_ui": false,
+        "editable": false,
+        "keep": false,
+        "populate_default": true
+    },
+    "Genotype": {
+        "default": null,
+        "show_ui": false,
+        "editable": true,
+        "keep": true
+    },
+    "Condition": {
+        "default": "H0",
+        "options": [
+            "H0",
+            "H07",
+            "H018"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Temperature": {
+        "default": "",
+        "editable": true,
+        "keep": true
+    },
+    "Target Temp.": {
+        "default": "",
+        "editable": true,
+        "keep": true
+    },
+    "Timepoint": {
+        "default": "H0",
+        "options": [
+            "H0",
+            "H07",
+            "H018"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Tank": {
+        "default": "TNK1",
+        "options": [
+            "TNK1",
+            "TNK2",
+            "TNK3",
+            "TNK4"
+        ],
+        "editable": false,
+        "keep": true
+    },
+    "Pam_value": {
+        "default": "",
+        "show_ui": false,
+        "editable": false,
+        "fill_with_data": true,
+        "keep": false
+    }
+}

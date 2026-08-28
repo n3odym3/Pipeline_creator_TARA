@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "nodes": [
+    {
+      "id": "node_0",
+      "processor_type": "FvFmProcessor",
+      "processor_module": "fvfm",
+      "parameters": {},
+      "position": [
+        198,
+        91
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from_node": "raw_data",
+      "to_node": "node_0"
+    }
+  ]
+}

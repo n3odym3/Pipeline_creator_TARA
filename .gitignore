@@ -6,3 +6,5 @@ dist/
 experiments/
 *.pyc
 *.pyo
+site/
+*.pth
