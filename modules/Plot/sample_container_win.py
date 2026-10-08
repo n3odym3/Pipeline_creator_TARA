@@ -627,7 +627,7 @@ class Sample_container_win(WindowBase):
             logger.warning("Export aborted: no samples selected.")
             return
 
-        def save_callback(file_path: str, selected_ext: str = "") -> None:
+        def save_callback(file_path: str, selected_ext: str = "", *args, **kwargs) -> None:
             if file_path:
                 if not file_path.lower().endswith(".csv") and not file_path.lower().endswith(".tsv"):
                     file_path += ".csv"
@@ -643,7 +643,7 @@ class Sample_container_win(WindowBase):
         """
         Prompt user with file dialog to load samples from CSV or TSV files.
         """
-        def load_callback(file_path: str, selected_ext: str = "") -> None:
+        def load_callback(file_path: str, selected_ext: str = "", *args, **kwargs) -> None:
             if not file_path or not os.path.exists(file_path):
                 return
             try:
