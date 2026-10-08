@@ -37,6 +37,7 @@ class SequenceProcessorWin(WindowBase):
 	current_folder: str | None
 	raw_sequence: str
 	last_sequence: list[str]
+	end_seq_cmd: str | list[str] | None
 
 	def __init__(self,
 				label: str = "Sequence processor",
@@ -45,9 +46,11 @@ class SequenceProcessorWin(WindowBase):
 				pos: tuple[int, int] = (10, 10),
 				uuid: str | None = None,
 				outputs: dict[str, Any] | None = None,
-				visible: bool = True) -> None: 
+				visible: bool = True,
+				end_seq_cmd: str | list[str] | None = None,
+				**kwargs: Any) -> None: 
 
-		super().__init__(label=label,pos=pos,win_width=win_width,win_height=win_height,uuid=uuid,outputs=outputs,visible=visible)
+		super().__init__(label=label, pos=pos, win_width=win_width, win_height=win_height, uuid=uuid, outputs=outputs, visible=visible, **kwargs)
 
 		self.outputs = outputs or {}
 		
@@ -63,7 +66,7 @@ class SequenceProcessorWin(WindowBase):
 				
 		self.connections = {k: [] for k in self.outputs}
 
-		self._persistent_fields = ["label"]
+		self._persistent_fields = ["label", "end_seq_cmd"]
 		self.accepted_input_types = [IOTypes.CMD_LIST, IOTypes.FOLDER_PATH, IOTypes.TEXT, IOTypes.CMD_DICT, IOTypes.TRIGGER]
 		
 		self.sequence_input_tag = f"seq_writer_input_{self.UUID}"
@@ -84,6 +87,7 @@ class SequenceProcessorWin(WindowBase):
 		self.check_delay = 5 # Check every 5 seconds if the task is still running
 		self.current_folder = None
 		self.raw_sequence = ""
+		self.end_seq_cmd = end_seq_cmd if end_seq_cmd is not None else getattr(sequence_processor, "end_seq_cmd", "R0G0B0W0IR1000")
 		
 		with dpg.window(label=self.label,
 						width=self.win_width,
@@ -107,26 +111,19 @@ class SequenceProcessorWin(WindowBase):
 	def update_permission(self) -> None:
 		"""
 		Adapt UI based on app_state.mode.
-		Disable closing and lock all controls in user mode.
+		Window remains closable even in user mode, and Run sequence button remains available.
 		"""
 		from core.app_state import app_state
 		mode = app_state.mode
 		is_user = (mode == "user")
 		
 		if dpg.does_item_exist(self.winID):
-			dpg.configure_item(self.winID, no_close=is_user)
+			dpg.configure_item(self.winID, no_close=False)
 
-		# Elements to toggle
-		elements = [
-			self.run_seq_tag,
-		]
-		
-		for tag in elements:
-			if dpg.does_item_exist(tag):
-				if is_user:
-					dpg.hide_item(tag)
-				else:
-					dpg.show_item(tag)
+		# Keep Run button visible and enabled
+		if dpg.does_item_exist(self.run_seq_tag):
+			dpg.show_item(self.run_seq_tag)
+			dpg.configure_item(self.run_seq_tag, enabled=True)
 
 	def is_ready(self) -> bool:
 		"""Check if the window is ready to process inputs."""
@@ -247,11 +244,47 @@ class SequenceProcessorWin(WindowBase):
 			def task(final_group: str | None = None, manual: bool = False) -> None:
 				def cleanup(status: str) -> None:
 					self.trigger_cb("CMD dict", {"record": False, "save": False, "add_timestamp": False, "manual": False, "export": True})
+
+					# Send end of sequence command if configured
+					end_cmd = getattr(self, "end_seq_cmd", None)
+					if end_cmd is None:
+						end_cmd = getattr(sequence_processor, "end_seq_cmd", "R0G0B0W0IR1000")
+
+					if end_cmd:
+						logger.info(f"SequenceProcessor: Sending end_seq_cmd: {end_cmd}")
+						if isinstance(end_cmd, list):
+							for item in end_cmd:
+								item_str = str(item).strip()
+								if not item_str:
+									continue
+								target = "CMD dict 2" if item_str.lower().startswith("out2 ") else "CMD dict"
+								raw_cmd = item_str[5:].strip() if item_str.lower().startswith("out2 ") else item_str
+								cmd_with_newline = raw_cmd if raw_cmd.endswith("\n") else f"{raw_cmd}\n"
+								self.trigger_cb(target, cmd_with_newline)
+								time.sleep(0.02)
+						elif isinstance(end_cmd, str):
+							for c in sequence_processor.get_commands(end_cmd):
+								if not c.strip():
+									continue
+								parsed = sequence_processor.trad_cmd(c)
+								if parsed.get("valid") and parsed.get("cmd"):
+									target = "CMD dict 2" if parsed.get("out2") else "CMD dict"
+									self.trigger_cb(target, parsed["cmd"])
+								else:
+									target = "CMD dict 2" if c.lower().startswith("out2 ") else "CMD dict"
+									raw_c = c[5:].strip() if c.lower().startswith("out2 ") else c
+									cmd_with_newline = raw_c if raw_c.endswith("\n") else f"{raw_c}\n"
+									self.trigger_cb(target, cmd_with_newline)
+								time.sleep(0.02)
+
 					dpg.set_value(self.seq_remaining_tag, f"Remaining : {status}")
 					if status == "DONE":
 						dpg.set_value(self.seq_progress_bar_tag, 1.0)
 					self.trigger_cb("Trigger", "stop")
 					self.seq_running = False
+
+					if status in ("ABORTED", "KILLED"):
+						self.trigger_cb("CMD dict", {"stop_video": True, "stop": True})
 
 					if status == "DONE" and not manual:
 						reload_cmd = {"scan": True}
@@ -270,19 +303,21 @@ class SequenceProcessorWin(WindowBase):
 
 					cmd_response = sequence_processor.trad_cmd(cmd)
 
-					if cmd_response.get("out2"):
-						self.trigger_cb("CMD dict 2", cmd_response["cmd"])
-					else:
-						self.trigger_cb("CMD dict", cmd_response["cmd"])
-
 					wait_feedback = bool(cmd_response.get("wait_feedback", False))
 					duration = float(cmd_response.get("duration", 0.0))
 
 					if wait_feedback:
 						self._ready_event.clear()
+
+					if cmd_response.get("out2"):
+						self.trigger_cb("CMD dict 2", cmd_response["cmd"])
+					else:
+						self.trigger_cb("CMD dict", cmd_response["cmd"])
+
+					if wait_feedback:
 						start_wait = time.perf_counter()
-						# Timeout: wait until ready event OR auto-advance if duration + 2.0s grace period expires
-						max_wait = duration + 2.0 if duration > 0 else 3600.0
+						# Timeout: wait until ready event OR auto-advance if duration + 2.0s expires (or timeout if duration is 0)
+						max_wait = duration + 2.0 if duration > 0 else float(cmd_response.get("timeout", 10.0))
 
 						while not self._ready_event.is_set():
 							if not self.seq_running:
@@ -290,14 +325,14 @@ class SequenceProcessorWin(WindowBase):
 								cleanup("KILLED")
 								return
 
-							time.sleep(0.05)
+							time.sleep(0.01)
 							now = time.perf_counter()
 							elapsed = now - start_wait
 							if elapsed >= max_wait:
 								logger.info(f"Feedback wait elapsed for command '{cmd}' ({elapsed:.1f}s), auto-advancing.")
 								break
 
-							# Live update remaining time display while waiting
+							# Live update remaining time display while waiting (only if duration > 0)
 							if duration > 0:
 								time_spent = min(elapsed, duration)
 								rem = max(0.0, self.total_duration - time_spent)
@@ -476,13 +511,24 @@ class SequenceProcessorWin(WindowBase):
 		data_content = kwargs.get("data") if "data" in kwargs else data
 
 		# 1. Handle READY / Trigger feedback signals from downstream modules
-		if data_type == IOTypes.TRIGGER or (isinstance(data_content, str) and data_content.upper() in ["READY", "RECORD_STOP", "DONE", "STOP", "FINISHED"]):
+		trigger_signals = {"READY", "RECORD_START", "RECORD_STARTED", "RECORD_STOP", "DONE", "STOP", "FINISHED"}
+		is_feedback = False
+		if data_type == IOTypes.TRIGGER:
+			if isinstance(data_content, str):
+				if data_content.upper() in trigger_signals:
+					is_feedback = True
+			else:
+				is_feedback = True
+		elif isinstance(data_content, str) and data_content.upper() in trigger_signals:
+			is_feedback = True
+
+		if is_feedback:
 			logger.info(f"Sequence Processor {self.UUID} received feedback trigger: '{data_content}'")
 			self._ready_event.set()
 			return
 
 		if data_type == IOTypes.CMD_DICT or isinstance(data_content, dict):
-			if isinstance(data_content, dict) and (data_content.get("ready") or data_content.get("done") or data_content.get("finished")):
+			if isinstance(data_content, dict) and (data_content.get("ready") or data_content.get("done") or data_content.get("finished") or data_content.get("record_started") or data_content.get("record_start")):
 				logger.info(f"Sequence Processor {self.UUID} received feedback dict: {data_content}")
 				self._ready_event.set()
 				return

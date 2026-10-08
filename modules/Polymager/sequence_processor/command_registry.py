@@ -218,7 +218,8 @@ def cmd_video(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Record Video for {duration_val}{unit}",
-		"duration": duration_s,
+		"duration": 0.0,
+		"timeout": 10.0,
 		"wait_feedback": True,
 		"cmd": {
 			"record_video": True,

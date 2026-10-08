@@ -96,7 +96,7 @@ class SequenceWriterWin(WindowBase):
 	def update_permission(self) -> None:
 		"""
 		Adjust module permissions and UI visibility based on app_state.mode.
-		Disable closing and lock all controls in user mode.
+		Disable closing in user mode. Controls remain enabled and functional.
 		"""
 		from core.app_state import app_state
 		mode = app_state.mode
@@ -114,7 +114,7 @@ class SequenceWriterWin(WindowBase):
 		]
 		for tag in controls:
 			if dpg.does_item_exist(tag):
-				dpg.configure_item(tag, enabled=not is_user)
+				dpg.configure_item(tag, enabled=True)
 
 	def is_ready(self) -> bool:
 		"""Check if the window is ready to process inputs."""

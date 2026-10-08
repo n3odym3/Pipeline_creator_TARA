@@ -6,10 +6,29 @@ from .command_registry import command_registry
 class SequenceProcessor:
 	sequence: str
 	current_raw_cmd: str
+	_end_seq_cmd: str | None
 
 	def __init__(self) -> None:
 		self.sequence = ""
 		self.current_raw_cmd = ""
+		self._end_seq_cmd = None
+
+	@property
+	def end_seq_cmd(self) -> str | list[str]:
+		if self._end_seq_cmd is not None:
+			return self._end_seq_cmd
+		try:
+			from core.config_manager import config
+			val = config.get_nested("SequenceProcessor", "end_seq_cmd", default="R0G0B0W0IR1000")
+			if isinstance(val, list):
+				return [str(x) for x in val]
+			return str(val) if val is not None else "R0G0B0W0IR1000"
+		except Exception:
+			return "R0G0B0W0IR1000"
+
+	@end_seq_cmd.setter
+	def end_seq_cmd(self, value: str | list[str] | None) -> None:
+		self._end_seq_cmd = value
 
 	def _split_sequence(self, sequence: str) -> list[str]:
 		"""Split the sequence into individual commands."""
