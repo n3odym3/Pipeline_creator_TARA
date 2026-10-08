@@ -358,8 +358,26 @@ class RoiManagerWin(WindowBase):
 
 	def on_mouse_move(self, sender: int | str, data: Any, *args: Any) -> None:
 		"""Hover detection: highlight ROI in image viewer."""
+		if not dpg.does_item_exist(self.winID):
+			return
+
 		is_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
 		is_dragging = is_down and (self._dragging_from is not None)
+
+		# If window is not hovered and not dragging, avoid traversing all ROIs
+		try:
+			is_win_hovered = dpg.is_item_hovered(self.winID)
+		except Exception:
+			is_win_hovered = False
+
+		if not is_win_hovered and not is_dragging:
+			if not is_down:
+				self._dragging_from = None
+			self._was_mouse_down = is_down
+			if self.highlighted_roi is not None:
+				self._send_update(self.highlighted_roi, "unhighlight")
+				self.highlighted_roi = None
+			return
 
 		# ── Detect drag start ──────────────────────────────────────────────────
 		if is_down and not self._was_mouse_down:
