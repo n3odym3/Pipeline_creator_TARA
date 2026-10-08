@@ -62,7 +62,8 @@ The node editor automatically discovers processor scripts located in `modules/no
 - **Divide Value** (`divide_value.py`): Scales or normalizes data by dividing `X` or `Y` by a scalar value.
 - **Normalize** (`normalize.py`): Rescales `Y` values to a $[0, 1]$ or percentage range based on min/max.
 - **Log10 X / Y** (`log10_x.py`, `log10_y.py`): Applies logarithmic ($\log_{10}$) scaling to input values.
-- **Delta Calculator** (`delta_calculator.py`): Computes discrete derivative ($\Delta Y / \Delta X$) or rate of change over time.
+- **Delta Calculator** (`delta_calculator.py`): Computes baseline subtraction from a single index or average over a range of indices.
+- **Derivative** (`derivative.py`): Computes 1st ($dy/dx$) or 2nd ($d^2y/dx^2$) numerical derivative with support for custom/per-sample $dx$ and central difference precision preserving signal length.
 
 ### 2. Fluorimetry (`processors/fluo/`)
 - **Fv/Fm** (`fvfm.py`): Computes maximal photochemical quantum yield of Photosystem II ($F_v/F_m = \frac{F_m - F_0}{F_m}$).
@@ -73,10 +74,13 @@ The node editor automatically discovers processor scripts located in `modules/no
 ### 3. Fitting & Regression (`processors/fitting/`)
 - **Linear Regression** (`linear_regression.py`): Fits a straight line ($y = ax + b$) and outputs slope, intercept, $R^2$, and auxiliary trendline curve.
 - **Polynomial Regression** (`polynomial_regression.py`): Fits higher-degree polynomials with customizable degree and emits fitted auxiliary series.
+- **Gaussian Deconvolution** (`gaussian_deconvolution.py`): Deconvolves complex multi-peak spectra/signals into individual Gaussian components ($G_1, G_2, \dots$) and total sum. Supports Auto Best Fit, Fixed Count, and Manual Target Centers with coverage assessment ($R^2$, % surface area coverage).
 
 ### 4. Filters & Slicing (`processors/filter/`)
 - **Extract Time** (`extract_time.py`): Truncates or windows dataset to a specific time interval $[t_{min}, t_{max}]$.
 - **Label Filter** (`label_filter.py`): Filters data points matching specific textual or phase label tags.
+- **Crop** (`crop.py`): Slices dataset by range (from... to...) or trims edges (crop left / crop right) with unit choice (point indices or real X coordinates).
+- **Smoothing** (`smoothing.py`): Versatile multi-mode signal smoother featuring Rolling Mean, Exponential Moving Average (EMA), Savitzky–Golay Filter (with automated crash safety sizing), Rolling Median (spike/outlier removal), Gaussian 1D filter, and Cumulative Moving Average.
 
 ### 5. Correction & Calibration (`processors/correction/`, `processors/tara/`)
 - **Slope Correction** (`slope_correction.py`): Subtracts linear drift or baseline background slope.
