@@ -65,16 +65,19 @@ class ImageContainerWin(WindowBase):
     outputs: dict[str, Any]
     connections: dict[str, list[Any]]
 
-    def __init__(self,
-                label: str = "Image Container",
-                win_width: int = 300,
-                win_height: int = 500,
-                pos: tuple[int, int] = (50, 50),
-                uuid: str | None = None,
-                outputs: dict[str, Any] | None = None,
-                visible: bool = True,
-                folder_path: str | None = None) -> None:
-        
+    def __init__(
+        self,
+        label: str = "Image Container",
+        win_width: int = display_scaling.scale(300),
+        win_height: int = display_scaling.scale(500),
+        pos: tuple[int, int] = (50, 50),
+        uuid: str | None = None,
+        outputs: dict[str, Any] | None = None,
+        visible: bool = True,
+        folder_path: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+
         if outputs is None:
             outputs = {
                 "Frame": IOTypes.FRAME,
@@ -87,12 +90,21 @@ class ImageContainerWin(WindowBase):
                 "Cropped Images": IOTypes.FRAME_LIST,
                 "Frame List": IOTypes.FRAME_LIST,
             }
-        
-        super().__init__(label=label, pos=pos, win_width=win_width, win_height=win_height,
-                        uuid=uuid, outputs=outputs, visible=visible)
+
+        super().__init__(
+            label=label,
+            pos=pos,
+            win_width=win_width,
+            win_height=win_height,
+            uuid=uuid,
+            outputs=outputs,
+            visible=visible,
+            **kwargs,
+        )
 
         self.outputs = outputs or {}
         self.connections = {k: [] for k in self.outputs}
+        self._is_closing = False
 
         # State
         self.folder_path = folder_path if folder_path else os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "experiments")
@@ -105,6 +117,7 @@ class ImageContainerWin(WindowBase):
         self.groups = ["All"]
         self.frame_counter = 0 # For naming incoming frames
         self.active_rois = {} # {uuid: {sample, x, y, func}}
+        self._roi_cache = {} # {uuid: {sample, prepared, x, y, labels, list_len}}
         self.ts_reference = time.time()
         self.manual = False # Manual mode flag to disable auto-scan
         self.pending_group = None # Group to select after next scan
@@ -163,16 +176,16 @@ class ImageContainerWin(WindowBase):
     def update_permission(self) -> None:
         """
         Adapt UI based on app_state.mode.
-        In 'user' mode: hide export, import, play, stop, fps, record, save, timestamp, and disable all inputs.
+        In 'user' mode: hide play, stop, fps, record, save, timestamp, and disable unneeded inputs.
+        Export and import remain functional and visible.
         """
         from core.app_state import app_state
+
         mode = app_state.mode
         is_user = (mode == "user")
-        
+
         # Elements to disable and hide
         hidden_elements = [
-            self.btn_export_tag,
-            self.btn_import_tag,
             self.play_btn,
             self.stop_btn,
             self.fps_drag_tag,
@@ -182,9 +195,9 @@ class ImageContainerWin(WindowBase):
             self.filter_input_tag,
             self.x_axis_combo_tag,
             self.clear_list_btn_tag,
-            self.send_framelist_btn_tag
+            self.send_framelist_btn_tag,
         ]
-        
+
         for tag in hidden_elements:
             if dpg.does_item_exist(tag):
                 if is_user:
@@ -194,65 +207,82 @@ class ImageContainerWin(WindowBase):
                     dpg.show_item(tag)
                     dpg.configure_item(tag, enabled=True)
 
+        for tag in [self.btn_export_tag, self.btn_import_tag]:
+            if dpg.does_item_exist(tag):
+                dpg.show_item(tag)
+                dpg.configure_item(tag, enabled=True)
+
+        if dpg.does_item_exist(self.winID):
+            dpg.configure_item(self.winID, no_close=is_user)
+
     def _build_interface(self, width: int, height: int) -> None:
         with dpg.window(label=self.label, width=width, height=height, pos=self.pos, tag=self.winID, show=self.visible):
-            
+
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Browse", tag=self.browse_btn_tag, callback=self._on_browse_clicked)
-                dpg.add_button(label="Export", tag=self.btn_export_tag, callback=self._export_experiment_to_file)
-                dpg.add_button(label="Import", tag=self.btn_import_tag, callback=self._import_experiment_from_file)
-            
+                dpg.add_button(label="Browse", tag=self.browse_btn_tag, width=display_scaling.scale(70), callback=self._on_browse_clicked)
+                dpg.add_button(label="Export", tag=self.btn_export_tag, width=display_scaling.scale(70), callback=self._export_experiment_to_file)
+                dpg.add_button(label="Import", tag=self.btn_import_tag, width=display_scaling.scale(70), callback=self._import_experiment_from_file)
+
             dpg.add_separator()
-            
+
             # Filters (Highlighted block)
             filter_block_tag = f"filter_block_{self.UUID}"
             with dpg.child_window(tag=filter_block_tag, border=True, auto_resize_y=True, width=-1):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Group:")
-                    dpg.add_combo(self.groups, default_value="All", tag=self.group_combo_tag, callback=self._apply_filters, width=120)
-                
+                    dpg.add_combo(self.groups, default_value="All", tag=self.group_combo_tag, callback=self._apply_filters, width=display_scaling.scale(120))
+
                 with dpg.group(horizontal=True):
                     dpg.add_text("Filter:")
-                    dpg.add_input_text(hint="Filter filenames...", tag=self.filter_input_tag, callback=self._apply_filters, width=120)
+                    dpg.add_input_text(hint="Filter filenames...", tag=self.filter_input_tag, callback=self._apply_filters, width=display_scaling.scale(120))
             highlight(filter_block_tag)
 
             dpg.add_separator()
-            
+
             # Playback Controls
             with dpg.group(horizontal=True):
-                self.play_btn = dpg.add_button(label="\uf04b", callback=self._start_playback)
-                self.stop_btn = dpg.add_button(label="\uf04d", callback=self._stop_playback)
+                self.play_btn = dpg.add_button(label="\uf04b", width=display_scaling.scale(30), callback=self._start_playback)
+                self.stop_btn = dpg.add_button(label="\uf04d", width=display_scaling.scale(30), callback=self._stop_playback)
                 theme_manager.apply_icon_font(self.play_btn)
                 theme_manager.apply_icon_font(self.stop_btn)
-                
-                dpg.add_drag_int(label="FPS", default_value=10, min_value=1, max_value=60, tag=self.fps_drag_tag, width=80)
-            
+
+                dpg.add_drag_int(label="FPS", default_value=10, min_value=1, max_value=60, tag=self.fps_drag_tag, width=display_scaling.scale(80))
+
             with dpg.group(horizontal=True):
                 dpg.add_checkbox(label="Record", tag=self.record_check_tag, default_value=False)
                 dpg.add_checkbox(label="Save", tag=self.save_check_tag, default_value=False)
                 dpg.add_checkbox(label="Timestamp", tag=self.timestamp_check_tag, default_value=False)
-            
-            dpg.add_combo(["Index", "Time", "Intensity"], default_value="Time", label="X-Axis", tag=self.x_axis_combo_tag, width=120)
+
+            dpg.add_combo(["Index", "Time", "Intensity"], default_value="Time", label="X-Axis", tag=self.x_axis_combo_tag, width=display_scaling.scale(120))
 
             with dpg.group(horizontal=True):
                 dpg.add_text("0 images", tag=self.count_text_tag)
                 dpg.add_button(
                     label="Send",
                     tag=self.send_framelist_btn_tag,
+                    width=display_scaling.scale(60),
                     callback=self._send_current_framelist,
                 )
-            
-            dpg.add_button(label="Clear List",tag=self.clear_list_btn_tag, callback=self.clear_list, width=-1)
-            
+
+            dpg.add_button(label="Clear List", tag=self.clear_list_btn_tag, callback=self.clear_list, width=-1)
+
             # Image List
             dpg.add_listbox([], tag=self.listbox_tag, callback=self._on_list_select, width=-1, num_items=15)
 
         # Create hidden modal for progress
-        with dpg.window(label="Processing...", modal=True, show=False, tag=self.progress_modal_tag, no_title_bar=True, width=300, height=120):
+        with dpg.window(
+            label="Processing...",
+            modal=True,
+            show=False,
+            tag=self.progress_modal_tag,
+            no_title_bar=True,
+            width=display_scaling.scale(300),
+            height=display_scaling.scale(120),
+        ):
             with dpg.group(horizontal=True):
                 dpg.add_loading_indicator(radius=2.0)
                 dpg.add_text("Working...", tag=self.progress_text_tag)
-            dpg.add_spacer(height=10)
+            dpg.add_spacer(height=display_scaling.scale(10))
             dpg.add_progress_bar(tag=self.progress_bar_tag, width=-1)
 
         self.handler_registry_tag = f"ic_handler_reg_{self.UUID}"
@@ -713,6 +743,8 @@ class ImageContainerWin(WindowBase):
         if action in ["unselect", "delete"]:
             # Remove from active tracking
             roi_data = self.active_rois.pop(roi_uuid, None)
+            if action == "delete":
+                self._roi_cache.pop(roi_uuid, None)
             
             sample = {
                 "uuid": roi_uuid,
@@ -728,21 +760,39 @@ class ImageContainerWin(WindowBase):
 
         if action == "rename":
             if roi_uuid in self.active_rois:
-                # Update stored sample name
                 self.active_rois[roi_uuid]["sample"]["name"] = roi_sample["name"]
+            if roi_uuid in self._roi_cache:
+                self._roi_cache[roi_uuid]["sample"]["name"] = roi_sample["name"]
                 
-                # Emit rename action so downstream (Lineplot) just updates the label
-                out_sample = {
-                    "uuid": roi_uuid,
-                    "name": roi_sample["name"],
-                    "action": "rename" 
-                }
-                self._emit_sample(out_sample)
+            out_sample = {
+                "uuid": roi_uuid,
+                "name": roi_sample["name"],
+                "action": "rename" 
+            }
+            self._emit_sample(out_sample)
             return
 
         if not self.current_list:
             logger.warning("No images to process.")
             return
+
+        # Check if already computed and cached for the exact same list
+        if action == "select" and roi_uuid in self._roi_cache:
+            cached = self._roi_cache[roi_uuid]
+            cached_rect = cached["sample"].get("rect")
+            req_rect = roi_sample.get("rect")
+            if cached.get("list_len") == len(self.current_list) and cached_rect == req_rect:
+                self.active_rois[roi_uuid] = cached
+                out_sample = {
+                    "uuid":   roi_uuid,
+                    "name":   roi_sample.get("name", cached["sample"].get("name")),
+                    "x":      cached["x"],
+                    "y":      cached["y"],
+                    "labels": cached["labels"],
+                    "action": "select" 
+                }
+                self._emit_sample(out_sample)
+                return
 
         # ── Pre-compute ROI descriptor ONCE (outside the image loop) ──
         roi_mask = roi_sample.get("mask")  # bool np.ndarray or None
@@ -769,14 +819,17 @@ class ImageContainerWin(WindowBase):
         # ── Emit cropped ROI images if a downstream module is connected ──
         self._emit_cropped_images(roi_sample, prepared, x_data, labels)
         
-        # Store as active ROI for future frames
-        self.active_rois[roi_uuid] = {
+        # Store as active ROI for future frames and in cache
+        roi_entry = {
             "sample":   roi_sample,
             "prepared": prepared,  # keep descriptor for single-frame updates
             "x":        x_data,
             "y":        y_data,
             "labels":   labels,
+            "list_len": len(self.current_list),
         }
+        self.active_rois[roi_uuid] = roi_entry
+        self._roi_cache[roi_uuid] = roi_entry
         
         out_sample = {
             "uuid":   roi_uuid,
@@ -816,6 +869,7 @@ class ImageContainerWin(WindowBase):
             x_val = self._get_x_value(filename, idx)
             data["x"].append(x_val)
             data["y"].append(float(mean_val))
+            data["list_len"] = len(self.current_list)
             
             if "labels" not in data:
                 data["labels"] = []
@@ -925,6 +979,7 @@ class ImageContainerWin(WindowBase):
         self.image_cache = {}
         self.metadata_cache = {}
         self.active_rois = {}  # Fully clear ROIs
+        self._roi_cache = {}
         self.frame_counter = 0
         self.current_list = []
         self.groups = ["All"]
@@ -1544,12 +1599,38 @@ class ImageContainerWin(WindowBase):
     def _stop_playback(self, *args: Any, **kwargs: Any) -> None:
         self.stop_playback_flag = True
 
-    def close(self) -> None:
+    def is_ready(self) -> bool:
+        """Indicate whether the module is initialized and ready to operate."""
+        return not getattr(self, "_is_closing", False)
+
+    def on_close(self) -> None:
+        """Release resources, terminate playback thread, and signal background workers on closure."""
+        if getattr(self, "_is_closing", False):
+            return
+        self._is_closing = True
         self._stop_playback()
-        if self.playback_thread:
-            self.playback_thread.join(timeout=0.5)
+        if hasattr(self, "roi_queue"):
+            try:
+                self.roi_queue.put(None)
+            except Exception:
+                pass
+        if hasattr(self, "playback_thread") and self.playback_thread and self.playback_thread.is_alive():
+            try:
+                self.playback_thread.join(timeout=0.5)
+            except Exception:
+                pass
+
+    def close(self) -> None:
+        """Close window and unregister."""
+        self.on_close()
         super().close()
 
+    def destroy(self) -> None:
+        """Destroy window and release resources."""
+        self.close()
+        super().destroy()
 
+
+ImageContainer_win = ImageContainerWin
 EXPORTED_CLASS = ImageContainerWin
 EXPORTED_NAME = "Image Container"
