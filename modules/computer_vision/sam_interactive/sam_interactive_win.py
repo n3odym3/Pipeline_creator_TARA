@@ -49,7 +49,13 @@ class SamInteractiveWin(WindowBase):
         self._current_mask = None
 
         self._lock = threading.Lock()
-        self._processing_lock = threading.Lock()
+
+        # Concurrency & queue tracking
+        self._is_encoding = False
+        self._pending_image: np.ndarray | None = None
+        self._predictor_frame_shape: tuple[int, int] | None = None
+        self._is_predicting = False
+        self._pending_predict = False
 
         # UI Tags for image processing controls
         self._tag_proc_enable = f"sam_proc_enable_{self.UUID}"
@@ -77,6 +83,7 @@ class SamInteractiveWin(WindowBase):
         self.mouse_x = 0
         self.mouse_y = 0
         self.is_hovering = False
+        self._tag_handler_reg = f"sam_handlers_{self.UUID}"
 
         self._build_ui()
 
@@ -93,6 +100,23 @@ class SamInteractiveWin(WindowBase):
         if dpg.does_item_exist(self.winID):
             is_user = (mode == "user")
             dpg.configure_item(self.winID, no_close=is_user)
+
+    def is_ready(self) -> bool:
+        """Return True if model predictor is loaded and ready."""
+        return self.predictor is not None
+
+    def close(self) -> None:
+        """Clean up registered DearPyGui handlers and textures upon closing."""
+        if dpg.does_item_exist(self._tag_handler_reg):
+            dpg.delete_item(self._tag_handler_reg)
+        if dpg.does_item_exist(self._tag_texture_reg):
+            dpg.delete_item(self._tag_texture_reg)
+        super().close()
+
+    def destroy(self) -> None:
+        """Destroy module resources."""
+        self.close()
+        super().destroy()
 
     def _load_sam_model(self):
         """Loads the SAM model when the module is created"""
@@ -142,8 +166,8 @@ class SamInteractiveWin(WindowBase):
             dpg.add_separator()
             
             self._init_viewer(800, 600)
-            
-            with dpg.handler_registry():
+
+            with dpg.handler_registry(tag=self._tag_handler_reg):
                 dpg.add_mouse_move_handler(callback=self.on_mouse_move)
                 dpg.add_mouse_click_handler(callback=self.on_mouse_click)
 
@@ -209,7 +233,7 @@ class SamInteractiveWin(WindowBase):
         
         if self._raw_bgr_frame is not None:
             if getattr(self, "enabled", True):
-                threading.Thread(target=self._set_image_worker, daemon=True).start()
+                self._trigger_set_image()
             else:
                 self._update_display()
 
@@ -221,7 +245,7 @@ class SamInteractiveWin(WindowBase):
                 was_enabled = getattr(self, "enabled", True)
                 self.enabled = data.get("enable", data.get("enabled", True))
                 if self.enabled and not was_enabled and getattr(self, "_rgb_frame", None) is not None:
-                    threading.Thread(target=self._set_image_worker, daemon=True).start()
+                    self._trigger_set_image()
             return
 
         frame = data if data is not None else kwargs.get("data")
@@ -247,40 +271,61 @@ class SamInteractiveWin(WindowBase):
             
             self.reset_points()
             if getattr(self, "enabled", True):
-                threading.Thread(target=self._set_image_worker, daemon=True).start()
+                self._trigger_set_image()
             else:
                 self._update_display()
 
-    def _set_image_worker(self):
-        if not self._processing_lock.acquire(blocking=False): return
-        try:
-            if self.predictor is None or self._rgb_frame is None: return
-            dpg.set_value(self._tag_status, "Encoding image...")
-            dpg.configure_item(self._tag_status, color=(255, 255, 100))
-            
-            self.predictor.set_image(self._rgb_frame)
-            
-            has_points = False
+    def _trigger_set_image(self):
+        with self._lock:
+            if self._rgb_frame is None:
+                return
+            self._pending_image = self._rgb_frame.copy()
+            if self._is_encoding:
+                return
+            self._is_encoding = True
+
+        threading.Thread(target=self._encoding_worker_loop, daemon=True).start()
+
+    def _encoding_worker_loop(self):
+        while True:
             with self._lock:
-                if self.points:
-                    has_points = True
-            
-            if has_points:
-                self._predict_worker_internal()
-            else:
-                dpg.set_value(self._tag_status, "Ready")
-                dpg.configure_item(self._tag_status, color=(100, 255, 100))
-                self._update_display()
-        except Exception as e:
-            logger.error(f"SAM error: {e}")
-            dpg.set_value(self._tag_status, f"Error: {e}")
-        finally:
-            self._processing_lock.release()
+                img = self._pending_image
+                self._pending_image = None
+                if img is None:
+                    self._is_encoding = False
+                    break
+
+            try:
+                dpg.set_value(self._tag_status, "Encoding image...")
+                dpg.configure_item(self._tag_status, color=(255, 255, 100))
+                
+                if self.predictor is not None:
+                    self.predictor.set_image(img)
+                    with self._lock:
+                        self._predictor_frame_shape = img.shape[:2]
+
+                has_points = False
+                with self._lock:
+                    if self.points:
+                        has_points = True
+
+                if has_points:
+                    self._trigger_predict()
+                else:
+                    dpg.set_value(self._tag_status, "Ready")
+                    dpg.configure_item(self._tag_status, color=(100, 255, 100))
+                    self._update_display()
+            except Exception as e:
+                logger.error(f"SAM error: {e}")
+                dpg.set_value(self._tag_status, f"Error: {e}")
 
     def reset_points(self, *args, **kwargs):
         with self._lock:
             self.points, self.labels, self._current_mask = [], [], None
         self._update_display()
+        if not getattr(self, "_is_encoding", False):
+            dpg.set_value(self._tag_status, "Ready")
+            dpg.configure_item(self._tag_status, color=(100, 255, 100))
 
     def on_mouse_move(self, sender, data, *args, **kwargs):
         try:
@@ -300,20 +345,47 @@ class SamInteractiveWin(WindowBase):
             self.points.append([self.mouse_x, self.mouse_y])
             self.labels.append(1 if dpg.is_mouse_button_down(0) else 0)
 
-        dpg.set_value(self._tag_status, "Predicting...")
-        threading.Thread(target=self._predict_worker, daemon=True).start()
+        self._trigger_predict()
 
-    def _predict_worker(self):
-        if not self._processing_lock.acquire(blocking=False): return
-        try:
+    def _trigger_predict(self):
+        with self._lock:
+            if not self.points:
+                return
+            if self._is_encoding:
+                dpg.set_value(self._tag_status, "Encoding image... will predict once ready")
+                return
+            if self._rgb_frame is not None and self._predictor_frame_shape != self._rgb_frame.shape[:2]:
+                dpg.set_value(self._tag_status, "Syncing image...")
+                self._trigger_set_image()
+                return
+
+            if self._is_predicting:
+                self._pending_predict = True
+                return
+            self._is_predicting = True
+
+        dpg.set_value(self._tag_status, "Predicting...")
+        threading.Thread(target=self._predict_worker_loop, daemon=True).start()
+
+    def _predict_worker_loop(self):
+        while True:
+            with self._lock:
+                self._pending_predict = False
+
             self._predict_worker_internal()
-        finally:
-            self._processing_lock.release()
+
+            with self._lock:
+                if not self._pending_predict:
+                    self._is_predicting = False
+                    break
 
     def _predict_worker_internal(self):
         try:
             with self._lock:
-                if self.predictor is None or not self.points: return
+                if self.predictor is None or not self.points or self._rgb_frame is None: return
+                if self._predictor_frame_shape != self._rgb_frame.shape[:2]:
+                    logger.warning("SAM: Predict called but predictor not synced with frame shape.")
+                    return
                 pts, lbls = np.array(self.points), np.array(self.labels)
 
             masks, scores, _ = self.predictor.predict(point_coords=pts, point_labels=lbls, multimask_output=True)
@@ -322,8 +394,10 @@ class SamInteractiveWin(WindowBase):
             self._update_display()
             self._export_outputs()
             dpg.set_value(self._tag_status, "Ready. Mask updated.")
+            dpg.configure_item(self._tag_status, color=(100, 255, 100))
         except Exception as e:
             logger.error(f"SAM predict failed: {e}")
+            dpg.set_value(self._tag_status, f"Error: {e}")
 
     def _update_display(self):
         with self._lock:
@@ -332,7 +406,15 @@ class SamInteractiveWin(WindowBase):
             mask, pts, lbls = self._current_mask, self.points.copy(), self.labels.copy()
 
         if mask is not None:
-            display_img[mask] = display_img[mask] * 0.5 + np.array([255, 0, 0]) * 0.5
+            if mask.shape[:2] != display_img.shape[:2]:
+                logger.warning(
+                    f"SAM: Mask shape {mask.shape[:2]} does not match display image shape {display_img.shape[:2]}. Discarding mask."
+                )
+                with self._lock:
+                    self._current_mask = None
+                mask = None
+            else:
+                display_img[mask] = display_img[mask] * 0.5 + np.array([255, 0, 0]) * 0.5
             
         display_img_bgr = cv2.cvtColor(display_img, cv2.COLOR_RGB2BGR)
         for (x, y), lbl in zip(pts, lbls):
@@ -344,8 +426,13 @@ class SamInteractiveWin(WindowBase):
 
     def _export_outputs(self):
         with self._lock:
-            mask, frame, pts = self._current_mask, self._rgb_frame, self.points
+            mask, frame, pts = self._current_mask, self._rgb_frame, self.points.copy()
         if mask is None or frame is None or not pts: return
+        if mask.shape[:2] != frame.shape[:2]:
+            logger.warning(
+                f"SAM: Mask shape {mask.shape[:2]} does not match frame shape {frame.shape[:2]}. Skipping export."
+            )
+            return
         mask_8u = (mask.astype(np.uint8) * 255)
         
         for module in self.connections.get("Mask", []):

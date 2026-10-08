@@ -27,39 +27,6 @@ class ColorMapperWin(WindowBase):
     Integrates with `ColorMapperProcessor` to map pixels inside a mask to the
     closest reference color in a configurable palette. Provides an interactive image
     viewer, ROI probing tool, interactive palette editor, and data export pipelines.
-
-    Attributes
-    ----------
-    folderpath : str | None
-        Current destination folder path for exporting cropped images and outputs.
-    groupname : str | None
-        Sample or image group base name received from upstream nodes.
-    accepted_input_types : list[IOTypes]
-        List of accepted I/O connection types.
-    processor : ColorMapperProcessor
-        Processor instance encapsulating color space calculations and caching.
-    roi_w : int
-        Width of the active inspection ROI in pixels.
-    roi_h : int
-        Height of the active inspection ROI in pixels.
-    mouse_x : int
-        Current mouse X coordinate on the plot image.
-    mouse_y : int
-        Current mouse Y coordinate on the plot image.
-    is_hovering : bool
-        Flag indicating if the mouse pointer is currently hovering over the viewer plot.
-    selected_key : str | None
-        Currently selected color key in the palette list for calibration or inspection.
-    _is_comparing : bool
-        Flag indicating whether comparison mode (masked original view) is actively held.
-    _wizard_active : bool
-        Flag indicating whether the sequential palette calibration wizard is in progress.
-    _wizard_index : int
-        Current step index in the sequential calibration wizard.
-    outputs : dict[str, IOTypes]
-        Dictionary of available module output pins.
-    connections : dict[str, list[Any]]
-        Output connections to downstream consumer modules.
     """
 
     folderpath: str | None
@@ -113,23 +80,6 @@ class ColorMapperWin(WindowBase):
                  visible: bool = True) -> None:
         """
         Initialize the ColorMapper UI window, registries, and data processor.
-
-        Parameters
-        ----------
-        label : str, default="Color Mapper"
-            Display title of the window.
-        win_width : int, default=600
-            Initial width of the DearPyGui window.
-        win_height : int, default=650
-            Initial height of the DearPyGui window.
-        pos : tuple[int, int], default=(400, 50)
-            Initial screen position (x, y).
-        uuid : str | int | None, optional
-            Unique identifier for the module node.
-        outputs : dict[str, IOTypes] | None, optional
-            Output endpoints specification dictionary.
-        visible : bool, default=True
-            Initial visibility of the window.
         """
         outputs = outputs or {
             "Mapped Frame": IOTypes.FRAME,
@@ -339,17 +289,42 @@ class ColorMapperWin(WindowBase):
                 
         self._build_palette_list()
 
+    def is_ready(self) -> bool:
+        """Indicate whether the module is ready to accept inputs."""
+        return True
+
     def on_close(self) -> None:
-        """
-        Clean up resources, handler registries, and memory allocations upon window closure.
-        """
-        if dpg.does_item_exist(self.item_handler_tag):
-            dpg.delete_item(self.item_handler_tag)
-        # Clear processor refs to helper objects if any
-        if hasattr(self, 'processor'):
+        """Clean up resources, handler registries, and memory allocations upon window closure."""
+        if getattr(self, "_is_closing", False):
+            return
+        self._is_closing = True
+
+        if hasattr(self, "item_handler_tag") and self.item_handler_tag and dpg.does_item_exist(self.item_handler_tag):
+            try:
+                dpg.delete_item(self.item_handler_tag)
+            except Exception:
+                pass
+        if hasattr(self, "handler_tag") and self.handler_tag and dpg.does_item_exist(self.handler_tag):
+            try:
+                dpg.delete_item(self.handler_tag)
+            except Exception:
+                pass
+        if hasattr(self, "_tag_texture_reg") and self._tag_texture_reg and dpg.does_item_exist(self._tag_texture_reg):
+            try:
+                dpg.delete_item(self._tag_texture_reg)
+            except Exception:
+                pass
+        if hasattr(self, "processor") and self.processor:
             self.processor.reset_inputs()
-            del self.processor
-        logger.debug(f"ColorMapper {self.UUID} cleaned up its specific handlers.")
+
+    def close(self) -> None:
+        """Clean up and unregister the window from the registry."""
+        self.on_close()
+        super().close()
+
+    def destroy(self) -> None:
+        """Destroy window and release resources."""
+        self.close()
 
     def _toggle_editor(self, sender: str | int | None = None, app_data: Any = None, *args, **kwargs) -> None:
         """
@@ -504,13 +479,6 @@ class ColorMapperWin(WindowBase):
     def _init_viewer(self, width: int, height: int) -> None:
         """
         Thread-safe wrapper to initialize or resize the viewer texture and plot.
-
-        Parameters
-        ----------
-        width : int
-            Width of the image in pixels.
-        height : int
-            Height of the image in pixels.
         """
         import threading
         from core.automation_manager import automation_manager
@@ -522,13 +490,6 @@ class ColorMapperWin(WindowBase):
     def _init_viewer_internal(self, width: int, height: int) -> None:
         """
         Create or recreate the raw texture and plot axes for image rendering.
-
-        Parameters
-        ----------
-        width : int
-            Width of the image in pixels.
-        height : int
-            Height of the image in pixels.
         """
         if dpg.does_item_exist(self._tag_texture): dpg.delete_item(self._tag_texture)
         if dpg.does_item_exist(self._tag_plot_node): dpg.delete_item(self._tag_plot_node)
@@ -538,7 +499,7 @@ class ColorMapperWin(WindowBase):
         
         img = np.zeros((height, width, 4), dtype=np.uint8)
         
-        dpg.add_raw_texture(width, height, self._convert_to_dpg(img), tag=self._tag_texture, format=dpg.mvFormat_Float_rgba, parent=self._tag_texture_reg)
+        dpg.add_dynamic_texture(width, height, self._convert_to_dpg(img), tag=self._tag_texture, parent=self._tag_texture_reg)
         
         plot_tag = dpg.add_plot(tag=self._tag_plot_node, no_menus=True, no_title=True, width=-1, height=-1, parent=self._plot_parent)
         xaxis = dpg.add_plot_axis(dpg.mvXAxis, no_gridlines=True, no_tick_labels=True, no_tick_marks=True, parent=plot_tag)
@@ -551,16 +512,6 @@ class ColorMapperWin(WindowBase):
     def _convert_to_dpg(self, img: np.ndarray) -> np.ndarray:
         """
         Convert a BGR/BGRA numpy image to flattened float32 RGBA format expected by DearPyGui raw textures.
-
-        Parameters
-        ----------
-        img : np.ndarray
-            Input image array (H, W, 3) or (H, W, 4) in BGR(A) format.
-
-        Returns
-        -------
-        np.ndarray
-            Flattened 1D float32 array normalized to [0.0, 1.0].
         """
         rgba = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
         return (rgba.ravel().astype(np.float32)) / 255.0
@@ -730,17 +681,6 @@ class ColorMapperWin(WindowBase):
     def _emit_distribution(self, dist: dict[str, dict], title_suffix: str = "", save: bool = False, sample_name: str = "") -> None:
         """
         Utility to send distribution data payload to all connected downstream modules.
-
-        Parameters
-        ----------
-        dist : dict[str, dict]
-            Color distribution dictionary.
-        title_suffix : str, default=""
-            Optional title suffix identifying the source (e.g. ROI vs Full Frame).
-        save : bool, default=False
-            When True, downstream Color Aggregator will commit the data as a permanent row.
-        sample_name : str, default=""
-            Optional sample name/ID forwarded to identify the row in downstream tables.
         """
         pie_data = {
             "action": "plot_pie",
@@ -850,15 +790,6 @@ class ColorMapperWin(WindowBase):
     def input_cb(self, data: Any, *args, **kwargs) -> None:
         """
         Entry point receiving data from upstream nodes (Frames, Masks, Folder Paths, Commands).
-
-        Parameters
-        ----------
-        data : Any
-            Incoming data object.
-        *args : Any
-            Additional positional arguments.
-        **kwargs : Any
-            Additional keyword arguments (must contain `data_type` : IOTypes).
         """
         data_type = kwargs.get("data_type")
         if data_type == IOTypes.FOLDER_PATH:

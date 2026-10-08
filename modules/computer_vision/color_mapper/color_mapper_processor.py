@@ -19,33 +19,6 @@ class ColorMapperProcessor:
     """
     Handles image processing, color space conversions, and palette management
     for the Color Mapper module.
-
-    Attributes
-    ----------
-    config_path : Path
-        Filesystem path to the JSON file where the palette dictionary is persisted.
-    color_map_RGB : dict[str, tuple[int, int, int]]
-        Dictionary mapping color names (keys) to their (R, G, B) integer values.
-    palette_keys : list[str]
-        Ordered list of color names in the current palette.
-    palette_rgb : np.ndarray | None
-        Array of shape (N, 3) uint8 containing palette colors in RGB format.
-    palette_lab : np.ndarray | None
-        Array of shape (N, 3) float32 containing palette colors converted to CIELAB space.
-    frame : np.ndarray | None
-        Current input image frame (BGR format).
-    mask : np.ndarray | None
-        Current input binary/grayscale mask array.
-    _cached_mapped_frame : np.ndarray | None
-        Cached mapped output frame (BGR) from the latest heavy mapping run.
-    _cached_preview_frame : np.ndarray | None
-        Cached masked original frame (BGR) for comparison preview.
-    _cached_distribution : dict[str, dict]
-        Cached color distribution metrics for the current frame and mask.
-    _needs_remapping : bool
-        Flag indicating whether heavy color mapping recalculation is required.
-    last_distribution : dict[str, dict]
-        Most recent distribution dictionary produced by process_map.
     """
 
     config_path: Path
@@ -64,11 +37,6 @@ class ColorMapperProcessor:
     def __init__(self, config_path: str | Path) -> None:
         """
         Initialize the ColorMapperProcessor with a palette configuration path.
-
-        Parameters
-        ----------
-        config_path : str | Path
-            File path to the JSON palette file.
         """
         self.config_path = Path(config_path)
         
@@ -149,16 +117,6 @@ class ColorMapperProcessor:
     def add_key(self, new_name: str) -> bool:
         """
         Add a new color key initialized to black (0, 0, 0) to the palette.
-
-        Parameters
-        ----------
-        new_name : str
-            Name of the color class/key to add.
-
-        Returns
-        -------
-        bool
-            True if the key was added successfully, False if empty or already exists.
         """
         new_name = new_name.strip()
         if new_name and new_name not in self.color_map_RGB:
@@ -170,18 +128,6 @@ class ColorMapperProcessor:
     def rename_key(self, old_name: str, new_name: str) -> bool:
         """
         Rename an existing color key in the palette while preserving its RGB value and order.
-
-        Parameters
-        ----------
-        old_name : str
-            Current name of the key.
-        new_name : str
-            New name for the key.
-
-        Returns
-        -------
-        bool
-            True if renamed successfully, False if new_name is invalid or already exists.
         """
         new_name = new_name.strip()
         if not new_name or new_name == old_name or new_name in self.color_map_RGB:
@@ -200,16 +146,6 @@ class ColorMapperProcessor:
     def delete_key(self, name: str) -> bool:
         """
         Remove a color key from the palette.
-
-        Parameters
-        ----------
-        name : str
-            Name of the color key to delete.
-
-        Returns
-        -------
-        bool
-            True if deleted, False if key was not found.
         """
         if name in self.color_map_RGB:
             del self.color_map_RGB[name]
@@ -230,19 +166,6 @@ class ColorMapperProcessor:
     def ingest_data(self, data: np.ndarray | tuple[np.ndarray, np.ndarray], is_pair: bool = False) -> bool:
         """
         Ingest raw input data and separate image frame from segmentation mask.
-
-        Parameters
-        ----------
-        data : np.ndarray | tuple[np.ndarray, np.ndarray]
-            Incoming data which can be a single image array, a mask array,
-            or a tuple pair of (frame, mask).
-        is_pair : bool, default=False
-            Whether the incoming data is explicitly a (frame, mask) pair.
-
-        Returns
-        -------
-        bool
-            True if the data was successfully ingested, False otherwise.
         """
         if is_pair:
             frame = data[0]
@@ -284,11 +207,6 @@ class ColorMapperProcessor:
     def set_full_mask(self) -> bool:
         """
         Create a full-white mask covering the entire frame dimensions.
-
-        Returns
-        -------
-        bool
-            True if frame exists and full mask was generated, False otherwise.
         """
         if self.frame is not None:
             self.mask = np.full(self.frame.shape[:2], 255, dtype=np.uint8)
@@ -302,20 +220,6 @@ class ColorMapperProcessor:
 
         Calculates the nearest palette color in CIELAB color space for all masked
         pixels. Uses caching to prevent redundant expensive computations across UI redraws.
-
-        Parameters
-        ----------
-        show_original : bool
-            If True, bypasses color mapping display and returns the original raw frame.
-        is_comparing : bool
-            If True, returns the masked original frame for visual side-by-side comparison.
-
-        Returns
-        -------
-        tuple[np.ndarray | None, dict[str, dict], str]
-            - Output image in BGR format (or None if no frame is loaded).
-            - Distribution dictionary mapping palette keys to count, percentage, and color.
-            - Status message string describing the current state.
         """
         if self.frame is None:
             return None, {}, "Wait for Frame & Mask"
@@ -404,25 +308,6 @@ class ColorMapperProcessor:
     def get_roi_distribution(self, x1: int, y1: int, x2: int, y2: int, use_mask: bool = True) -> dict[str, dict]:
         """
         Calculate palette color distribution specifically within a rectangular Region of Interest (ROI).
-
-        Parameters
-        ----------
-        x1 : int
-            Left horizontal coordinate of ROI.
-        y1 : int
-            Top vertical coordinate of ROI.
-        x2 : int
-            Right horizontal coordinate of ROI.
-        y2 : int
-            Bottom vertical coordinate of ROI.
-        use_mask : bool, default=True
-            Whether to restrict color sampling to pixels inside the active mask.
-
-        Returns
-        -------
-        dict[str, dict]
-            Distribution dictionary containing pixel count, percentage, RGB color,
-            and the best matching color key for the specified ROI.
         """
         if self.frame is None or self.palette_lab is None:
             return {}
@@ -484,24 +369,6 @@ class ColorMapperProcessor:
     def analyze_roi(self, x1: int, y1: int, x2: int, y2: int, use_mask: bool) -> tuple[tuple[int, int, int] | None, str]:
         """
         Analyze the average color within an ROI and find its closest palette match.
-
-        Parameters
-        ----------
-        x1 : int
-            Left horizontal coordinate of ROI.
-        y1 : int
-            Top vertical coordinate of ROI.
-        x2 : int
-            Right horizontal coordinate of ROI.
-        y2 : int
-            Bottom vertical coordinate of ROI.
-        use_mask : bool
-            Whether to restrict calculation to pixels inside the mask.
-
-        Returns
-        -------
-        tuple[tuple[int, int, int] | None, str]
-            Tuple of ((R, G, B) mean color tuple or None, closest palette key name).
         """
         if self.frame is None or self.palette_lab is None:
             return None, ""
@@ -533,26 +400,6 @@ class ColorMapperProcessor:
     def calibrate_key_from_roi(self, target_key: str, x1: int, y1: int, x2: int, y2: int, use_mask: bool) -> bool:
         """
         Calibrate an existing palette color key to the mean RGB value of a selected ROI.
-
-        Parameters
-        ----------
-        target_key : str
-            Palette color name to update with the sampled color.
-        x1 : int
-            Left horizontal coordinate of ROI.
-        y1 : int
-            Top vertical coordinate of ROI.
-        x2 : int
-            Right horizontal coordinate of ROI.
-        y2 : int
-            Bottom vertical coordinate of ROI.
-        use_mask : bool
-            Whether to restrict sampling to pixels within the mask.
-
-        Returns
-        -------
-        bool
-            True if calibration succeeded, False if target_key was invalid or ROI was empty.
         """
         if target_key not in self.color_map_RGB:
             return False
