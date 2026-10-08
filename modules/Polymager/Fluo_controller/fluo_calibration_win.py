@@ -166,10 +166,13 @@ class FluoCalibrationWin:
         serial: SerialControl,
         on_calibration_saved: Optional[Callable[[str], None]] = None,
         parent_uuid: Optional[int | str] = None,
+        initial_cal_path: Optional[str] = None,
+        show: bool = True,
     ) -> None:
         self.serial = serial
         self.on_calibration_saved = on_calibration_saved
         self.uuid = parent_uuid or "calib"
+        self.loaded_file_path: Optional[str] = None
 
         # Calibration Data State
         self.threshold: int = 150
@@ -189,10 +192,23 @@ class FluoCalibrationWin:
         self.current_step_idx: int = 0
         self._is_testing: bool = False
 
+        # If no initial_cal_path given, check default fluo_calibration.json
+        if initial_cal_path is None:
+            default_path = os.path.join(os.path.dirname(__file__), "fluo_calibration.json")
+            if os.path.exists(default_path):
+                initial_cal_path = default_path
+
+        # Populate internal state from initial_cal_path if present
+        if initial_cal_path and os.path.exists(initial_cal_path):
+            try:
+                with open(initial_cal_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self._apply_calibration_dict(data, file_path=initial_cal_path)
+            except Exception as e:
+                logger.warning(f"Failed to load initial calibration from {initial_cal_path}: {e}")
+
         # Tag definitions
         self.win_tag = f"fluo_calib_win_{self.uuid}"
-        self.mode_combo_tag = f"fluo_calib_mode_{self.uuid}"
-        self.step_combo_tag = f"fluo_calib_step_combo_{self.uuid}"
         self.thresh_input_tag = f"fluo_calib_thresh_{self.uuid}"
         self.active_param_text_tag = f"fluo_calib_active_param_{self.uuid}"
         self.measured_ue_tag = f"fluo_calib_measured_ue_{self.uuid}"
@@ -201,6 +217,10 @@ class FluoCalibrationWin:
         self.test_handler_tag = f"fluo_calib_test_handler_{self.uuid}"
         self.global_handler_tag = f"fluo_calib_global_handler_{self.uuid}"
         self.summary_text_tag = f"fluo_calib_summary_{self.uuid}"
+        self.tab_bar_tag = f"fluo_calib_tabs_{self.uuid}"
+        self.tab_low_tag = f"fluo_calib_tab_low_{self.uuid}"
+        self.tab_high_tag = f"fluo_calib_tab_high_{self.uuid}"
+        self.tab_curves_tag = f"fluo_calib_tab_curves_{self.uuid}"
         self.low_table_tag = f"fluo_calib_low_table_{self.uuid}"
         self.high_table_tag = f"fluo_calib_high_table_{self.uuid}"
         self.status_msg_tag = f"fluo_calib_status_msg_{self.uuid}"
@@ -229,19 +249,19 @@ class FluoCalibrationWin:
         self.high_degree_label_tag = f"fluo_calib_high_deg_lbl_{self.uuid}"
         self.high_degree_input_tag = f"fluo_calib_high_deg_inp_{self.uuid}"
 
-        self._build_ui()
+        self._build_ui(show=show)
 
     def show(self) -> None:
         """Show and bring the calibration window to the front."""
         if dpg.does_item_exist(self.win_tag):
             dpg.show_item(self.win_tag)
             dpg.focus_item(self.win_tag)
-            self._update_step_ui()
             self._refresh_tables()
+            self._set_active_step(self.current_mode, self.current_step_idx)
         else:
-            self._build_ui()
+            self._build_ui(show=True)
 
-    def _build_ui(self) -> None:
+    def _build_ui(self, show: bool = True) -> None:
         s = display_scaling.scale
 
         if dpg.does_item_exist(self.win_tag):
@@ -258,37 +278,21 @@ class FluoCalibrationWin:
         with dpg.window(
             label="Fluorescence Actinic Calibration Tool",
             tag=self.win_tag,
-            width=s(580),
-            height=s(680),
+            width=s(620),
+            height=s(700),
             pos=(s(100), s(80)),
             on_close=self.on_close,
-            show=True,
+            show=show,
         ):
-            dpg.add_text("Actinic LED Calibration Assistant", color=(100, 200, 255))
-
-            # Mode & Threshold Controls
+            # Top Header: Title & Threshold
             with dpg.group(horizontal=True):
-                dpg.add_text("Mode:")
-                dpg.add_combo(
-                    items=["Low Mode (PWM Variation, ADIM=512)", "High Mode (ADIM Variation, PWM=512)"],
-                    default_value="Low Mode (PWM Variation, ADIM=512)",
-                    tag=self.mode_combo_tag,
-                    width=s(300),
-                    callback=self._on_mode_changed,
-                )
-                with dpg.tooltip(self.mode_combo_tag):
-                    dpg.add_text(
-                        "Calibration mode:\n"
-                        "• Low Mode: Variable PWM, fixed ADIM=512 (low intensity range)\n"
-                        "• High Mode: Variable ADIM, fixed PWM=512 (high intensity range)",
-                        wrap=s(350),
-                    )
-
-                dpg.add_text("Threshold:")
+                dpg.add_text("Actinic LED Calibration Assistant", color=(100, 200, 255))
+                dpg.add_spacer(width=s(25))
+                dpg.add_text("Threshold (µE):")
                 dpg.add_input_int(
                     tag=self.thresh_input_tag,
                     default_value=self.threshold,
-                    width=s(150),
+                    width=s(110),
                     min_value=0,
                     max_value=5000,
                     step=-1,
@@ -302,79 +306,83 @@ class FluoCalibrationWin:
                         wrap=s(350),
                     )
 
-            dpg.add_separator()
+            dpg.add_spacer(height=s(2))
 
-            # Palier Navigation & Active Setting Display
-            with dpg.group(horizontal=True):
-                dpg.add_text("Step:")
-                dpg.add_combo(
-                    items=[],
-                    tag=self.step_combo_tag,
-                    width=s(260),
-                    callback=self._on_step_selected_from_combo,
-                )
-                with dpg.tooltip(self.step_combo_tag):
-                    dpg.add_text("Select a calibration step directly to measure or edit.")
-
-                dpg.add_button(label="< Prev", width=s(125), callback=self._on_prev_step)
-                dpg.add_button(label="Next >", width=s(125), callback=self._on_next_step)
-
+            # Active Setting text directly in window
             dpg.add_text("Active Setting: PWM = 5, ADIM = 512", tag=self.active_param_text_tag, color=(255, 215, 0))
 
-            dpg.add_spacer(height=s(4))
+            dpg.add_spacer(height=s(3))
 
-            # TEST (Hold) & Measurement Entry Box
-            with dpg.child_window(height=s(140), border=True):
-                dpg.add_text("1. Hold TEST to turn on the LED")
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="TEST",
-                        tag=self.btn_test_tag,
-                        width=s(100),
-                        height=s(50),
+            # 1. TEST (Hold) on its own line
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="TEST (Hold)",
+                    tag=self.btn_test_tag,
+                    width=s(140),
+                    height=s(30),
+                )
+                with dpg.tooltip(self.btn_test_tag):
+                    dpg.add_text(
+                        "Hold down to turn ON the Actinic LED at current step setting.\n"
+                        "Release mouse to turn OFF immediately.",
+                        wrap=s(320),
                     )
-                    with dpg.tooltip(self.btn_test_tag):
-                        dpg.add_text(
-                            "Hold down to turn ON the Actinic LED at current step setting.\n"
-                            "Release mouse to turn OFF immediately.",
-                            wrap=s(320),
-                        )
-                    dpg.add_text("Status: OFF", tag=self.status_msg_tag, color=(160, 160, 160))
+                dpg.add_spacer(width=s(10))
+                status_text = f"Loaded: {os.path.basename(self.loaded_file_path)}" if self.loaded_file_path else "Status: OFF"
+                status_color = (100, 255, 100) if self.loaded_file_path else (160, 160, 160)
+                dpg.add_text(status_text, tag=self.status_msg_tag, color=status_color)
 
-                dpg.add_spacer(height=s(4))
-                dpg.add_text("2. Enter measured intensity and record:")
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Measured (µE):")
-                    dpg.add_input_float(
-                        tag=self.measured_ue_tag,
-                        default_value=0.0,
-                        format="%.2f",
-                        width=s(150),
-                        step=-1,
-                    )
-                    dpg.add_button(
-                        label="Record & Next",
-                        tag=self.btn_record_tag,
-                        width=s(180),
-                        height=s(28),
-                        callback=self._on_record_and_next,
-                    )
-                    with dpg.tooltip(self.btn_record_tag):
-                        dpg.add_text(
-                            "Record the measured intensity for this step\n"
-                            "and advance to the next step.",
-                            wrap=s(320),
-                        )
+            dpg.add_spacer(height=s(3))
 
-            dpg.add_spacer(height=s(4))
+            # 2. Below: Measured (µE) & Record & Next
+            with dpg.group(horizontal=True):
+                dpg.add_text("Measured (µE):")
+                dpg.add_input_float(
+                    tag=self.measured_ue_tag,
+                    default_value=0.0,
+                    format="%.2f",
+                    width=s(120),
+                    step=-1,
+                )
+                dpg.add_spacer(width=s(8))
+                dpg.add_button(
+                    label="Record & Next",
+                    tag=self.btn_record_tag,
+                    width=s(140),
+                    height=s(28),
+                    callback=self._on_record_and_next,
+                )
+                with dpg.tooltip(self.btn_record_tag):
+                    dpg.add_text(
+                        "Record the measured intensity for this step\n"
+                        "and advance to the next step.",
+                        wrap=s(320),
+                    )
+
+            dpg.add_spacer(height=s(3))
+
+            # 3. Below: Prev & Next
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="< Prev", width=s(120), height=s(28), callback=self._on_prev_step)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Previous calibration step (switches to Low Mode if at start of High Mode).")
+
+                dpg.add_spacer(width=s(10))
+                dpg.add_button(label="Next >", width=s(120), height=s(28), callback=self._on_next_step)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Next calibration step (switches to High Mode if at end of Low Mode).")
+
+            dpg.add_spacer(height=s(2))
 
             # Progress Summary
             dpg.add_text("Progress: Low Mode 0/15 points | High Mode 0/11 points", tag=self.summary_text_tag)
 
+            dpg.add_separator()
+
             # Dynamic Tables Container that fills remaining vertical space
             with dpg.child_window(height=-s(48), border=False):
-                with dpg.tab_bar():
-                    with dpg.tab(label="Low Mode Data (PWM)"):
+                with dpg.tab_bar(tag=self.tab_bar_tag, callback=self._on_tab_changed):
+                    with dpg.tab(label="Low Mode Data (PWM)", tag=self.tab_low_tag):
                         with dpg.table(
                             header_row=True,
                             borders_innerH=True,
@@ -393,7 +401,7 @@ class FluoCalibrationWin:
                             dpg.add_table_column(label="ADIM (Fixed)", width_stretch=True, init_width_or_weight=0.28)
                             dpg.add_table_column(label="Measured (µE)", width_stretch=True, init_width_or_weight=0.32)
 
-                    with dpg.tab(label="High Mode Data (ADIM)"):
+                    with dpg.tab(label="High Mode Data (ADIM)", tag=self.tab_high_tag):
                         with dpg.table(
                             header_row=True,
                             borders_innerH=True,
@@ -412,7 +420,7 @@ class FluoCalibrationWin:
                             dpg.add_table_column(label="PWM (Fixed)", width_stretch=True, init_width_or_weight=0.28)
                             dpg.add_table_column(label="Measured (µE)", width_stretch=True, init_width_or_weight=0.32)
 
-                    with dpg.tab(label="Model / Live Curves"):
+                    with dpg.tab(label="Model / Live Curves", tag=self.tab_curves_tag):
                         with dpg.tab_bar():
                             with dpg.tab(label="Combined Model (All)"):
                                 with dpg.group(horizontal=True):
@@ -433,7 +441,7 @@ class FluoCalibrationWin:
                                             wrap=s(360),
                                         )
                                     dpg.add_spacer(width=s(10))
-                                    dpg.add_text("Threshold: 150 µE", tag=self.comb_model_text_tag, color=(255, 215, 0))
+                                    dpg.add_text(f"Threshold: {self.threshold} µE", tag=self.comb_model_text_tag, color=(255, 215, 0))
                                 with dpg.plot(label="Combined Model (Low Power <= Threshold <= High Linear)", height=-1, width=-1, no_menus=True, tag=self.comb_plot_tag):
                                     dpg.add_plot_legend()
                                     dpg.add_plot_axis(dpg.mvXAxis, label="Target Intensity (µE)", tag=self.comb_xaxis_tag)
@@ -519,8 +527,8 @@ class FluoCalibrationWin:
         with dpg.handler_registry(tag=self.global_handler_tag):
             dpg.add_mouse_release_handler(callback=self._on_test_release)
 
-        self._update_step_ui()
         self._refresh_tables()
+        self._set_active_step(self.current_mode, self.current_step_idx)
 
     def _get_active_step_value(self) -> int:
         """Returns the current step value (PWM or ADIM) depending on mode."""
@@ -533,64 +541,90 @@ class FluoCalibrationWin:
                 return self.high_cal_steps[self.current_step_idx]
             return 10
 
+    def _set_active_step(self, mode: str, idx: int) -> None:
+        """Sets active mode and step index, synchronizes row highlights, tabs, and step UI."""
+        self.current_mode = mode
+        max_len = len(self.low_cal_steps) if mode == "low_cal" else len(self.high_cal_steps)
+        self.current_step_idx = max(0, min(idx, max_len - 1))
+
+        # Synchronize tab if currently on one of the table tabs
+        if dpg.does_item_exist(self.tab_bar_tag):
+            target_tab = self.tab_low_tag if mode == "low_cal" else self.tab_high_tag
+            current_tab = dpg.get_value(self.tab_bar_tag)
+            if current_tab in (self.tab_low_tag, self.tab_high_tag) and current_tab != target_tab:
+                dpg.set_value(self.tab_bar_tag, target_tab)
+
+        # Update selectable row highlights in both tables
+        for j in range(len(self.low_cal_steps)):
+            sel_tag = f"low_sel_{self.uuid}_{j}"
+            if dpg.does_item_exist(sel_tag):
+                dpg.set_value(sel_tag, (mode == "low_cal" and j == self.current_step_idx))
+
+        for j in range(len(self.high_cal_steps)):
+            sel_tag = f"high_sel_{self.uuid}_{j}"
+            if dpg.does_item_exist(sel_tag):
+                dpg.set_value(sel_tag, (mode == "high_cal" and j == self.current_step_idx))
+
+        self._update_step_ui()
+
+    def _on_row_clicked(self, sender: Any, app_data: Any, user_data: Any = None, *args: Any) -> None:
+        """Called when a table row is clicked."""
+        if not user_data:
+            return
+        mode, idx = user_data
+        self._set_active_step(mode, idx)
+
+    def _on_tab_changed(self, sender: Any, app_data: Any, *args: Any) -> None:
+        """Called when user switches tabs in the tab bar."""
+        if app_data == self.tab_low_tag:
+            if self.current_mode != "low_cal":
+                idx = min(self.current_step_idx, len(self.low_cal_steps) - 1)
+                self._set_active_step("low_cal", idx)
+        elif app_data == self.tab_high_tag:
+            if self.current_mode != "high_cal":
+                idx = min(self.current_step_idx, len(self.high_cal_steps) - 1)
+                self._set_active_step("high_cal", idx)
+        elif app_data == self.tab_curves_tag:
+            self._refresh_plots()
+
     def _update_step_ui(self) -> None:
-        """Synchronizes combo items, active setting text, and float input with current step."""
+        """Synchronizes active setting text and float input with current step."""
         if self.current_mode == "low_cal":
             steps = self.low_cal_steps
             data = self.low_cal_data
-            items = []
-            for i, pwm in enumerate(steps):
-                val = data.get(pwm)
-                val_str = f"{val:.2f} µE" if val is not None else "[not set]"
-                items.append(f"Step {i+1}/{len(steps)}: PWM={pwm} ({val_str})")
-
             if self.current_step_idx >= len(steps):
                 self.current_step_idx = max(0, len(steps) - 1)
 
             current_pwm = steps[self.current_step_idx] if steps else 0
-            if dpg.does_item_exist(self.step_combo_tag):
-                dpg.configure_item(self.step_combo_tag, items=items)
-                if 0 <= self.current_step_idx < len(items):
-                    dpg.set_value(self.step_combo_tag, items[self.current_step_idx])
+            val = data.get(current_pwm)
 
             if dpg.does_item_exist(self.active_param_text_tag):
                 dpg.set_value(
                     self.active_param_text_tag,
-                    f"Active Setting: PWM = {current_pwm}  (ADIM = 512)",
+                    f"Active Setting: Low Mode (#{self.current_step_idx + 1}/{len(steps)}) — PWM = {current_pwm}, ADIM = 512",
                 )
 
             # Pre-fill input float with recorded value or default 0.0
-            recorded = data.get(current_pwm)
             if dpg.does_item_exist(self.measured_ue_tag):
-                dpg.set_value(self.measured_ue_tag, float(recorded) if recorded is not None else 0.0)
+                dpg.set_value(self.measured_ue_tag, float(val) if val is not None else 0.0)
 
         else:
             steps = self.high_cal_steps
             data = self.high_cal_data
-            items = []
-            for i, adim in enumerate(steps):
-                val = data.get(adim)
-                val_str = f"{val:.2f} µE" if val is not None else "[not set]"
-                items.append(f"Step {i+1}/{len(steps)}: ADIM={adim} ({val_str})")
-
             if self.current_step_idx >= len(steps):
                 self.current_step_idx = max(0, len(steps) - 1)
 
             current_adim = steps[self.current_step_idx] if steps else 0
-            if dpg.does_item_exist(self.step_combo_tag):
-                dpg.configure_item(self.step_combo_tag, items=items)
-                if 0 <= self.current_step_idx < len(items):
-                    dpg.set_value(self.step_combo_tag, items[self.current_step_idx])
+            val = data.get(current_adim)
 
             if dpg.does_item_exist(self.active_param_text_tag):
                 dpg.set_value(
                     self.active_param_text_tag,
-                    f"Active Setting: ADIM = {current_adim}  (PWM = 512)",
+                    f"Active Setting: High Mode (#{self.current_step_idx + 1}/{len(steps)}) — ADIM = {current_adim}, PWM = 512",
                 )
 
-            recorded = data.get(current_adim)
             if dpg.does_item_exist(self.measured_ue_tag):
-                dpg.set_value(self.measured_ue_tag, float(recorded) if recorded is not None else 0.0)
+                dpg.set_value(self.measured_ue_tag, float(val) if val is not None else 0.0)
 
         self._update_summary()
 
@@ -606,10 +640,9 @@ class FluoCalibrationWin:
             )
 
     def _refresh_tables(self) -> None:
-        """Repopulates the data tables for low and high calibration regimes."""
+        """Repopulates the data tables for low and high calibration regimes with clickable selectable rows."""
         # Low table
         if dpg.does_item_exist(self.low_table_tag):
-            # Delete existing rows
             children = dpg.get_item_children(self.low_table_tag, 1)
             if children:
                 for child in children:
@@ -619,9 +652,16 @@ class FluoCalibrationWin:
                 val = self.low_cal_data.get(pwm)
                 val_str = f"{val:.2f}" if val is not None else "---"
                 is_active = (self.current_mode == "low_cal" and self.current_step_idx == i)
-                prefix = "-> " if is_active else ""
+                sel_tag = f"low_sel_{self.uuid}_{i}"
                 with dpg.table_row(parent=self.low_table_tag):
-                    dpg.add_text(f"{prefix}#{i+1}")
+                    dpg.add_selectable(
+                        label=f"#{i+1}",
+                        default_value=is_active,
+                        tag=sel_tag,
+                        span_columns=True,
+                        callback=self._on_row_clicked,
+                        user_data=("low_cal", i),
+                    )
                     dpg.add_text(str(pwm))
                     dpg.add_text("512")
                     dpg.add_text(val_str, color=(100, 255, 100) if val is not None else (150, 150, 150))
@@ -637,9 +677,16 @@ class FluoCalibrationWin:
                 val = self.high_cal_data.get(adim)
                 val_str = f"{val:.2f}" if val is not None else "---"
                 is_active = (self.current_mode == "high_cal" and self.current_step_idx == i)
-                prefix = "-> " if is_active else ""
+                sel_tag = f"high_sel_{self.uuid}_{i}"
                 with dpg.table_row(parent=self.high_table_tag):
-                    dpg.add_text(f"{prefix}#{i+1}")
+                    dpg.add_selectable(
+                        label=f"#{i+1}",
+                        default_value=is_active,
+                        tag=sel_tag,
+                        span_columns=True,
+                        callback=self._on_row_clicked,
+                        user_data=("high_cal", i),
+                    )
                     dpg.add_text(str(adim))
                     dpg.add_text("512")
                     dpg.add_text(val_str, color=(100, 255, 100) if val is not None else (150, 150, 150))
@@ -979,48 +1026,31 @@ class FluoCalibrationWin:
                 dpg.set_value(self.thresh_input_tag, new_thresh)
             self._refresh_plots()
 
-    def _on_mode_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
-        val = app_data if app_data is not None else dpg.get_value(self.mode_combo_tag)
-        if "Low Mode" in val:
-            self.current_mode = "low_cal"
-        else:
-            self.current_mode = "high_cal"
-
-        self.current_step_idx = 0
-        self._update_step_ui()
-        self._refresh_tables()
-
-    def _on_step_selected_from_combo(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
-        val = app_data if app_data is not None else dpg.get_value(self.step_combo_tag)
-        if not val:
-            return
-        try:
-            # Format: "Step X/Y: ..."
-            step_part = val.split(":")[0].replace("Step ", "").split("/")[0].strip()
-            idx = int(step_part) - 1
-            if self.current_mode == "low_cal":
-                if 0 <= idx < len(self.low_cal_steps):
-                    self.current_step_idx = idx
-            else:
-                if 0 <= idx < len(self.high_cal_steps):
-                    self.current_step_idx = idx
-            self._update_step_ui()
-            self._refresh_tables()
-        except (ValueError, IndexError):
-            pass
-
     def _on_prev_step(self, *args: Any) -> None:
-        if self.current_step_idx > 0:
-            self.current_step_idx -= 1
-            self._update_step_ui()
-            self._refresh_tables()
+        if self.current_mode == "high_cal":
+            if self.current_step_idx > 0:
+                self._set_active_step("high_cal", self.current_step_idx - 1)
+            else:
+                # Transition back to the end of Low Mode
+                self._set_active_step("low_cal", len(self.low_cal_steps) - 1)
+                if dpg.does_item_exist(self.tab_bar_tag):
+                    dpg.set_value(self.tab_bar_tag, self.tab_low_tag)
+        else:
+            if self.current_step_idx > 0:
+                self._set_active_step("low_cal", self.current_step_idx - 1)
 
     def _on_next_step(self, *args: Any) -> None:
-        max_idx = len(self.low_cal_steps) if self.current_mode == "low_cal" else len(self.high_cal_steps)
-        if self.current_step_idx < max_idx - 1:
-            self.current_step_idx += 1
-            self._update_step_ui()
-            self._refresh_tables()
+        if self.current_mode == "low_cal":
+            if self.current_step_idx < len(self.low_cal_steps) - 1:
+                self._set_active_step("low_cal", self.current_step_idx + 1)
+            else:
+                # Transition seamlessly to the start of High Mode
+                self._set_active_step("high_cal", 0)
+                if dpg.does_item_exist(self.tab_bar_tag):
+                    dpg.set_value(self.tab_bar_tag, self.tab_high_tag)
+        else:
+            if self.current_step_idx < len(self.high_cal_steps) - 1:
+                self._set_active_step("high_cal", self.current_step_idx + 1)
 
     def _on_record_and_next(self, *args: Any) -> None:
         """Record the measured intensity for the current step and advance."""
@@ -1037,12 +1067,16 @@ class FluoCalibrationWin:
                 logger.info(f"Recorded Low Cal: PWM {pwm} -> {measured} µE")
 
             if self.current_step_idx < len(self.low_cal_steps) - 1:
-                self.current_step_idx += 1
+                next_mode = "low_cal"
+                next_idx = self.current_step_idx + 1
             else:
-                # At the end of Low Mode, automatically offer or switch to High Mode
-                logger.info("Completed all Low Mode steps!")
+                # At the end of Low Mode, automatically advance to High Mode!
+                logger.info("Completed all Low Mode steps! Transitioning to High Mode.")
+                next_mode = "high_cal"
+                next_idx = 0
                 if dpg.does_item_exist(self.status_msg_tag):
-                    dpg.set_value(self.status_msg_tag, "Low Mode finished! Switch to High Mode.")
+                    dpg.set_value(self.status_msg_tag, "Low Mode finished! Switched to High Mode.")
+                    dpg.configure_item(self.status_msg_tag, color=(100, 255, 100))
         else:
             if 0 <= self.current_step_idx < len(self.high_cal_steps):
                 adim = self.high_cal_steps[self.current_step_idx]
@@ -1050,14 +1084,20 @@ class FluoCalibrationWin:
                 logger.info(f"Recorded High Cal: ADIM {adim} -> {measured} µE")
 
             if self.current_step_idx < len(self.high_cal_steps) - 1:
-                self.current_step_idx += 1
+                next_mode = "high_cal"
+                next_idx = self.current_step_idx + 1
             else:
                 logger.info("Completed all High Mode steps!")
+                next_mode = "high_cal"
+                next_idx = self.current_step_idx
                 if dpg.does_item_exist(self.status_msg_tag):
                     dpg.set_value(self.status_msg_tag, "High Mode finished! You can save.")
+                    dpg.configure_item(self.status_msg_tag, color=(100, 255, 100))
 
-        self._update_step_ui()
+        self.current_mode = next_mode
+        self.current_step_idx = next_idx
         self._refresh_tables()
+        self._set_active_step(next_mode, next_idx)
 
     def _on_test_press(self, *args: Any) -> None:
         """Called when the TEST button is clicked/pressed down."""
@@ -1182,6 +1222,123 @@ class FluoCalibrationWin:
             callback=on_save_selected,
         )
 
+    def _apply_calibration_dict(self, data: dict, file_path: Optional[str] = None) -> bool:
+        act_cal = data.get("act_calibration")
+        if not act_cal:
+            logger.warning(f"No 'act_calibration' section in data ({file_path})")
+            return False
+
+        self.threshold = int(act_cal.get("threshold", 150))
+        if file_path:
+            self.loaded_file_path = file_path
+
+        # Low cal
+        low = act_cal.get("low_cal", {})
+        low_m_obj = low.get("model")
+        if isinstance(low_m_obj, dict):
+            self.low_model_type = low_m_obj.get("type", "power")
+            self.low_poly_degree = int(low_m_obj.get("degree", 2))
+        elif isinstance(low_m_obj, str):
+            self.low_model_type = low_m_obj
+            self.low_poly_degree = 2
+        else:
+            self.low_model_type = "power"
+            self.low_poly_degree = 2
+
+        pwms = low.get("pwm", [])
+        ints_low = low.get("intensity", [])
+        if pwms:
+            self.low_cal_steps = [int(p) for p in pwms]
+            self.low_cal_data = {}
+            for i, p in enumerate(self.low_cal_steps):
+                self.low_cal_data[p] = float(ints_low[i]) if i < len(ints_low) else None
+
+        # High cal
+        high = act_cal.get("high_cal", {})
+        high_m_obj = high.get("model")
+        if isinstance(high_m_obj, dict):
+            self.high_model_type = high_m_obj.get("type", "linear")
+            self.high_poly_degree = int(high_m_obj.get("degree", 2))
+        elif isinstance(high_m_obj, str):
+            self.high_model_type = high_m_obj
+            self.high_poly_degree = 2
+        else:
+            self.high_model_type = "linear"
+            self.high_poly_degree = 2
+
+        adims = high.get("adim", [])
+        ints_high = high.get("intensity", [])
+        if adims:
+            self.high_cal_steps = [int(a) for a in adims]
+            self.high_cal_data = {}
+            for i, a in enumerate(self.high_cal_steps):
+                self.high_cal_data[a] = float(ints_high[i]) if i < len(ints_high) else None
+
+        self.current_step_idx = 0
+        return True
+
+    def load_from_dict(self, data: dict, file_path: Optional[str] = None) -> bool:
+        """Loads calibration from dictionary and updates all live UI items."""
+        if not self._apply_calibration_dict(data, file_path=file_path):
+            return False
+
+        if dpg.does_item_exist(self.thresh_input_tag):
+            dpg.set_value(self.thresh_input_tag, self.threshold)
+        if dpg.does_item_exist(self.drag_line_tag):
+            dpg.set_value(self.drag_line_tag, float(self.threshold))
+        if dpg.does_item_exist(self.comb_model_text_tag):
+            dpg.set_value(self.comb_model_text_tag, f"Threshold: {self.threshold} µE")
+
+        if dpg.does_item_exist(self.low_model_combo_tag):
+            dpg.set_value(
+                self.low_model_combo_tag,
+                CalibrationModelFit.MODEL_TYPE_TO_LABEL.get(self.low_model_type, "Power Law (a * x^b)"),
+            )
+        if dpg.does_item_exist(self.low_degree_input_tag):
+            dpg.set_value(self.low_degree_input_tag, self.low_poly_degree)
+            dpg.configure_item(self.low_degree_input_tag, show=(self.low_model_type == "polynomial"))
+        if dpg.does_item_exist(self.low_degree_label_tag):
+            dpg.configure_item(self.low_degree_label_tag, show=(self.low_model_type == "polynomial"))
+
+        if dpg.does_item_exist(self.high_model_combo_tag):
+            dpg.set_value(
+                self.high_model_combo_tag,
+                CalibrationModelFit.MODEL_TYPE_TO_LABEL.get(self.high_model_type, "Linear (a * x + b)"),
+            )
+        if dpg.does_item_exist(self.high_degree_input_tag):
+            dpg.set_value(self.high_degree_input_tag, self.high_poly_degree)
+            dpg.configure_item(self.high_degree_input_tag, show=(self.high_model_type == "polynomial"))
+        if dpg.does_item_exist(self.high_degree_label_tag):
+            dpg.configure_item(self.high_degree_label_tag, show=(self.high_model_type == "polynomial"))
+
+        if dpg.does_item_exist(self.win_tag):
+            self._refresh_tables()
+            self._set_active_step(self.current_mode, self.current_step_idx)
+
+        if file_path:
+            logger.success(f"Calibration imported from {file_path}")
+            if dpg.does_item_exist(self.status_msg_tag):
+                dpg.set_value(self.status_msg_tag, f"Loaded: {os.path.basename(file_path)}")
+                dpg.configure_item(self.status_msg_tag, color=(100, 255, 100))
+
+        return True
+
+    def load_from_file(self, file_path: str) -> bool:
+        """Loads calibration JSON file and updates all UI elements."""
+        if not file_path or not os.path.exists(file_path):
+            logger.warning(f"Calibration file does not exist: {file_path}")
+            return False
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return self.load_from_dict(data, file_path=file_path)
+        except Exception as e:
+            logger.error(f"Failed to load calibration JSON from {file_path}: {e}")
+            if dpg.does_item_exist(self.status_msg_tag):
+                dpg.set_value(self.status_msg_tag, f"Load failed: {e}")
+                dpg.configure_item(self.status_msg_tag, color=(255, 80, 80))
+            return False
+
     def _on_load_calibration(self, *args: Any) -> None:
         """Loads existing calibration data from JSON via file_explorer."""
         default_dir = os.path.dirname(__file__)
@@ -1189,92 +1346,9 @@ class FluoCalibrationWin:
         def on_load_selected(file_path: str, ext: str, *a: Any) -> None:
             if not file_path or not os.path.exists(file_path):
                 return
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-
-                act_cal = data.get("act_calibration")
-                if not act_cal:
-                    logger.warning(f"No act_calibration section in {file_path}")
-                    return
-
-                self.threshold = act_cal.get("threshold", 150)
-                if dpg.does_item_exist(self.thresh_input_tag):
-                    dpg.set_value(self.thresh_input_tag, self.threshold)
-
-                # Low cal
-                low = act_cal.get("low_cal", {})
-                low_m_obj = low.get("model")
-                if isinstance(low_m_obj, dict):
-                    self.low_model_type = low_m_obj.get("type", "power")
-                    self.low_poly_degree = int(low_m_obj.get("degree", 2))
-                elif isinstance(low_m_obj, str):
-                    self.low_model_type = low_m_obj
-                    self.low_poly_degree = 2
-                else:
-                    self.low_model_type = "power"
-                    self.low_poly_degree = 2
-
-                pwms = low.get("pwm", [])
-                ints_low = low.get("intensity", [])
-                if pwms:
-                    self.low_cal_steps = [int(p) for p in pwms]
-                    self.low_cal_data = {}
-                    for i, p in enumerate(self.low_cal_steps):
-                        self.low_cal_data[p] = float(ints_low[i]) if i < len(ints_low) else None
-
-                # High cal
-                high = act_cal.get("high_cal", {})
-                high_m_obj = high.get("model")
-                if isinstance(high_m_obj, dict):
-                    self.high_model_type = high_m_obj.get("type", "linear")
-                    self.high_poly_degree = int(high_m_obj.get("degree", 2))
-                elif isinstance(high_m_obj, str):
-                    self.high_model_type = high_m_obj
-                    self.high_poly_degree = 2
-                else:
-                    self.high_model_type = "linear"
-                    self.high_poly_degree = 2
-
-                adims = high.get("adim", [])
-                ints_high = high.get("intensity", [])
-                if adims:
-                    self.high_cal_steps = [int(a) for a in adims]
-                    self.high_cal_data = {}
-                    for i, a in enumerate(self.high_cal_steps):
-                        self.high_cal_data[a] = float(ints_high[i]) if i < len(ints_high) else None
-
-                # Update UI model controls
-                if dpg.does_item_exist(self.low_model_combo_tag):
-                    dpg.set_value(self.low_model_combo_tag, CalibrationModelFit.MODEL_TYPE_TO_LABEL.get(self.low_model_type, "Power Law (a * x^b)"))
-                if dpg.does_item_exist(self.low_degree_input_tag):
-                    dpg.set_value(self.low_degree_input_tag, self.low_poly_degree)
-                    dpg.configure_item(self.low_degree_input_tag, show=(self.low_model_type == "polynomial"))
-                if dpg.does_item_exist(self.low_degree_label_tag):
-                    dpg.configure_item(self.low_degree_label_tag, show=(self.low_model_type == "polynomial"))
-
-                if dpg.does_item_exist(self.high_model_combo_tag):
-                    dpg.set_value(self.high_model_combo_tag, CalibrationModelFit.MODEL_TYPE_TO_LABEL.get(self.high_model_type, "Linear (a * x + b)"))
-                if dpg.does_item_exist(self.high_degree_input_tag):
-                    dpg.set_value(self.high_degree_input_tag, self.high_poly_degree)
-                    dpg.configure_item(self.high_degree_input_tag, show=(self.high_model_type == "polynomial"))
-                if dpg.does_item_exist(self.high_degree_label_tag):
-                    dpg.configure_item(self.high_degree_label_tag, show=(self.high_model_type == "polynomial"))
-
-                self.current_step_idx = 0
-                self._update_step_ui()
-                self._refresh_tables()
-
-                logger.success(f"Calibration imported from {file_path}")
-                if dpg.does_item_exist(self.status_msg_tag):
-                    dpg.set_value(self.status_msg_tag, f"Loaded: {os.path.basename(file_path)}")
-                    dpg.configure_item(self.status_msg_tag, color=(100, 255, 100))
-
-            except Exception as e:
-                logger.error(f"Failed to load calibration JSON: {e}")
-                if dpg.does_item_exist(self.status_msg_tag):
-                    dpg.set_value(self.status_msg_tag, f"Load failed: {e}")
-                    dpg.configure_item(self.status_msg_tag, color=(255, 80, 80))
+            if self.load_from_file(file_path):
+                if self.on_calibration_saved:
+                    self.on_calibration_saved(file_path)
 
         file_explorer.select_file(
             default_path=default_dir,
@@ -1291,19 +1365,34 @@ class FluoCalibrationWin:
         self.high_cal_data = {adim: None for adim in self.high_cal_steps}
 
         self.threshold = 150
+        self.loaded_file_path = None
         if dpg.does_item_exist(self.thresh_input_tag):
             dpg.set_value(self.thresh_input_tag, 150)
+        if dpg.does_item_exist(self.drag_line_tag):
+            dpg.set_value(self.drag_line_tag, 150.0)
+        if dpg.does_item_exist(self.comb_model_text_tag):
+            dpg.set_value(self.comb_model_text_tag, "Threshold: 150 µE")
 
+        self.current_mode = "low_cal"
         self.current_step_idx = 0
-        self._update_step_ui()
         self._refresh_tables()
+        self._set_active_step("low_cal", 0)
+
+        if dpg.does_item_exist(self.tab_bar_tag):
+            dpg.set_value(self.tab_bar_tag, self.tab_low_tag)
 
         if dpg.does_item_exist(self.status_msg_tag):
             dpg.set_value(self.status_msg_tag, "Reset to default steps.")
             dpg.configure_item(self.status_msg_tag, color=(160, 160, 160))
 
     def on_close(self) -> None:
-        """Turns off light, cleans up handlers and closes window."""
+        """Turns off light and hides window."""
+        self._on_test_release()
+        if dpg.does_item_exist(self.win_tag):
+            dpg.hide_item(self.win_tag)
+
+    def destroy(self) -> None:
+        """Turns off light, cleans up handlers and destroys window."""
         self._on_test_release()
         if dpg.does_item_exist(self.test_handler_tag):
             dpg.delete_item(self.test_handler_tag)

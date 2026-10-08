@@ -62,6 +62,7 @@ class FluoControllerWin(WindowBase):
     cal_label_tag: str
     sin_freq_tag: str
     sin_amp_tag: str
+    current_cal_path: str | None
     calib_dialog: FluoCalibrationWin | None
 
     def __init__(
@@ -87,6 +88,7 @@ class FluoControllerWin(WindowBase):
         self.serial = SerialControl()
         self.serial.on_disconnect = self._on_serial_disconnected
         self.is_reading = True
+        self.current_cal_path = None
         self.calib_dialog = None
 
         # Validation requirements
@@ -119,6 +121,8 @@ class FluoControllerWin(WindowBase):
         self.cal_label_tag = f"fluo_cal_label_{self.UUID}"
         self.sin_freq_tag = f"fluo_sin_freq_{self.UUID}"
         self.sin_amp_tag = f"fluo_sin_amp_{self.UUID}"
+        self.btn_calibrate_tag = f"fluo_calibrate_{self.UUID}"
+        self.advanced_section_tag = f"fluo_adv_section_{self.UUID}"
 
         # Actinic calibration (µE mode)
         self._load_act_calibration()
@@ -141,18 +145,15 @@ class FluoControllerWin(WindowBase):
                 dpg.add_button(label="Refresh", callback=self._refresh_ports)
                 dpg.add_combo(items=[], width=100, tag=self.combo_ports_tag)
                 dpg.add_button(label="Connect", tag=self.btn_connect_tag, callback=self._toggle_connect)
-                dpg.add_text("Cal:")
-                dpg.add_button(label="Browse", callback=self._on_browse_calibration)
-                dpg.add_button(label="Calibrate", callback=self._open_calibration_tool)
-                dpg.add_text("fluo_calibration.json", tag=self.cal_label_tag)
 
             dpg.add_separator()
 
-            dpg.add_button(
-                label="EMERGENCY STOP",
-                width=-1,
-                callback=lambda: self.serial.send_command("act 0 \n det 0 \n fr 0\n"),
-            )
+            # Calibration Controls
+            with dpg.group(horizontal=True):
+                dpg.add_text("Cal:")
+                dpg.add_button(label="Browse", callback=self._on_browse_calibration)
+                dpg.add_button(label="Calibrate", tag=self.btn_calibrate_tag, callback=self._open_calibration_tool)
+                dpg.add_text("fluo_calibration.json", tag=self.cal_label_tag)
 
             test_det_grp = f"test_det_grp_{self.UUID}"
             with dpg.child_window(tag=test_det_grp, border=True, auto_resize_y=True, width=-1):
@@ -175,165 +176,166 @@ class FluoControllerWin(WindowBase):
                     dpg.add_button(label="Start", callback=self._run_test_detection)
             highlight(test_det_grp)
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("Act")
-                dpg.add_drag_int(
-                    tag=self.act_tag,
-                    default_value=0,
-                    min_value=0,
-                    clamped=True,
-                    max_value=512,
-                    width=80,
-                    callback=lambda s, a: self.serial.send_command(
-                        f"act {a} {dpg.get_value(self.act_pwm_tag) if dpg.does_item_exist(self.act_pwm_tag) else 512}\n"
-                    ) if a is not None else None,
+            with dpg.group(tag=self.advanced_section_tag):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Act")
+                    dpg.add_drag_int(
+                        tag=self.act_tag,
+                        default_value=0,
+                        min_value=0,
+                        clamped=True,
+                        max_value=512,
+                        width=80,
+                        callback=lambda s, a: self.serial.send_command(
+                            f"act {a} {dpg.get_value(self.act_pwm_tag) if dpg.does_item_exist(self.act_pwm_tag) else 512}\n"
+                        ) if a is not None else None,
+                    )
+
+                    dpg.add_text("PWM")
+                    dpg.add_drag_int(
+                        tag=self.act_pwm_tag,
+                        default_value=512,
+                        min_value=0,
+                        clamped=True,
+                        max_value=512,
+                        width=80,
+                        callback=lambda s, a: self.serial.send_command(
+                            f"act {dpg.get_value(self.act_tag) if dpg.does_item_exist(self.act_tag) else 0} {a}\n"
+                        ) if a is not None else None,
+                    )
+
+                    if self.act_cal_loaded:
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("µE")
+                            dpg.add_drag_int(
+                                tag=self.act_ue_tag,
+                                default_value=0,
+                                min_value=0,
+                                max_value=int(self.act_max_ue),
+                                width=80,
+                                clamped=True,
+                                callback=self._on_act_ue_apply,
+                            )
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Det")
+                    dpg.add_drag_int(
+                        tag=self.det_tag,
+                        default_value=0,
+                        min_value=0,
+                        clamped=True,
+                        max_value=512,
+                        width=80,
+                        callback=self._on_det_changed,
+                    )
+                    dpg.add_text("Fr")
+                    dpg.add_drag_int(
+                        tag=self.fr_tag,
+                        default_value=0,
+                        min_value=0,
+                        width=80,
+                        callback=lambda s, a: self.serial.send_command(f"fr {a}\n") if a is not None else None,
+                    )
+                    dpg.add_text("Wh")
+                    dpg.add_drag_int(
+                        tag=self.white_tag,
+                        default_value=0,
+                        min_value=0,
+                        max_value=512,
+                        width=80,
+                        callback=lambda s, a: self.serial.send_command(f"white {a}\n") if a is not None else None,
+                    )
+                    dpg.add_text("Wh2")
+                    dpg.add_drag_int(
+                        tag=self.white2_tag,
+                        default_value=0,
+                        min_value=0,
+                        max_value=512,
+                        width=80,
+                        callback=lambda s, a: self.serial.send_command(f"white2 {a}\n") if a is not None else None,
+                    )
+
+                dpg.add_separator()
+
+                dpg.add_text("Fv/Fm Test")
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Pulse:")
+                    dpg.add_drag_int(default_value=250, width=70, min_value=1, tag=self.fvfm_set_t_tag)
+                    dpg.add_text("Det:")
+                    dpg.add_drag_int(
+                        default_value=250,
+                        width=70,
+                        min_value=1,
+                        tag=self.fvfm_dur_tag,
+                        callback=self._on_test_param_changed,
+                    )
+                    dpg.add_text("DInt:")
+                    dpg.add_drag_int(default_value=512, width=70, min_value=0, max_value=512, tag=self.fvfm_int_tag)
+                    dpg.add_button(label="Start", callback=self._run_fvfm_test)
+
+                dpg.add_separator()
+
+                dpg.add_text("Fixed int. variable exp. test")
+                with dpg.group(horizontal=True):
+                    dpg.add_drag_int(
+                        default_value=512, tag=self.intensetag, width=120, min_value=10, max_value=512, clamped=True
+                    )
+                    dpg.add_button(label="Start", callback=self._run_fixed_int_test)
+                    dpg.add_drag_int(default_value=250, tag=self.pulse_delay_int_tag, width=80, label="Gap (ms)")
+
+                dpg.add_text("Fixed exp. variable int. test")
+                with dpg.group(horizontal=True):
+                    dpg.add_drag_int(
+                        min_value=10,
+                        max_value=5000,
+                        default_value=250,
+                        width=120,
+                        tag=self.expostag,
+                        callback=self._on_test_param_changed,
+                    )
+                    dpg.add_button(label="Start", callback=self._run_fixed_exp_test)
+                    dpg.add_drag_int(default_value=250, tag=self.pulse_delay_exp_tag, width=80, label="Gap (ms)")
+
+                dpg.add_separator()
+
+                # Sin control
+                dpg.add_text("Sin control")
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Sin Freq")
+                    dpg.add_drag_int(
+                        tag=self.sin_freq_tag,
+                        default_value=0,
+                        min_value=0,
+                        clamped=True,
+                        max_value=512,
+                        width=80,
+                        callback=lambda s, a: self._send_sineact(),
+                    )
+                    dpg.add_text("Amp")
+                    dpg.add_drag_int(
+                        tag=self.sin_amp_tag,
+                        default_value=0,
+                        min_value=0,
+                        clamped=True,
+                        max_value=512,
+                        width=80,
+                        callback=lambda s, a: self._send_sineact(),
+                    )
+                    dpg.add_button(label="Send", callback=self._send_sineact)
+                    dpg.add_button(label="Stop", callback=self._stop_sineact)
+
+                dpg.add_separator()
+
+                # Console log
+                dpg.add_text("Console Log:")
+                dpg.add_input_text(
+                    tag=self.console_tag,
+                    multiline=True,
+                    readonly=True,
+                    width=-1,
+                    height=100,
+                    default_value="",
                 )
-
-                dpg.add_text("PWM")
-                dpg.add_drag_int(
-                    tag=self.act_pwm_tag,
-                    default_value=512,
-                    min_value=0,
-                    clamped=True,
-                    max_value=512,
-                    width=80,
-                    callback=lambda s, a: self.serial.send_command(
-                        f"act {dpg.get_value(self.act_tag) if dpg.does_item_exist(self.act_tag) else 0} {a}\n"
-                    ) if a is not None else None,
-                )
-
-                if self.act_cal_loaded:
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("µE")
-                        dpg.add_drag_int(
-                            tag=self.act_ue_tag,
-                            default_value=0,
-                            min_value=0,
-                            max_value=int(self.act_max_ue),
-                            width=80,
-                            clamped=True,
-                            callback=self._on_act_ue_apply,
-                        )
-
-            with dpg.group(horizontal=True):
-                dpg.add_text("Det")
-                dpg.add_drag_int(
-                    tag=self.det_tag,
-                    default_value=0,
-                    min_value=0,
-                    clamped=True,
-                    max_value=512,
-                    width=80,
-                    callback=self._on_det_changed,
-                )
-                dpg.add_text("Fr")
-                dpg.add_drag_int(
-                    tag=self.fr_tag,
-                    default_value=0,
-                    min_value=0,
-                    width=80,
-                    callback=lambda s, a: self.serial.send_command(f"fr {a}\n") if a is not None else None,
-                )
-                dpg.add_text("Wh")
-                dpg.add_drag_int(
-                    tag=self.white_tag,
-                    default_value=0,
-                    min_value=0,
-                    max_value=512,
-                    width=80,
-                    callback=lambda s, a: self.serial.send_command(f"white {a}\n") if a is not None else None,
-                )
-                dpg.add_text("Wh2")
-                dpg.add_drag_int(
-                    tag=self.white2_tag,
-                    default_value=0,
-                    min_value=0,
-                    max_value=512,
-                    width=80,
-                    callback=lambda s, a: self.serial.send_command(f"white2 {a}\n") if a is not None else None,
-                )
-
-            dpg.add_separator()
-
-            dpg.add_text("Fv/Fm Test")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Pulse:")
-                dpg.add_drag_int(default_value=250, width=70, min_value=1, tag=self.fvfm_set_t_tag)
-                dpg.add_text("Det:")
-                dpg.add_drag_int(
-                    default_value=250,
-                    width=70,
-                    min_value=1,
-                    tag=self.fvfm_dur_tag,
-                    callback=self._on_test_param_changed,
-                )
-                dpg.add_text("DInt:")
-                dpg.add_drag_int(default_value=512, width=70, min_value=0, max_value=512, tag=self.fvfm_int_tag)
-                dpg.add_button(label="Start", callback=self._run_fvfm_test)
-
-            dpg.add_separator()
-
-            dpg.add_text("Fixed int. variable exp. test")
-            with dpg.group(horizontal=True):
-                dpg.add_drag_int(
-                    default_value=512, tag=self.intensetag, width=120, min_value=10, max_value=512, clamped=True
-                )
-                dpg.add_button(label="Start", callback=self._run_fixed_int_test)
-                dpg.add_drag_int(default_value=250, tag=self.pulse_delay_int_tag, width=80, label="Gap (ms)")
-
-            dpg.add_text("Fixed exp. variable int. test")
-            with dpg.group(horizontal=True):
-                dpg.add_drag_int(
-                    min_value=10,
-                    max_value=5000,
-                    default_value=250,
-                    width=120,
-                    tag=self.expostag,
-                    callback=self._on_test_param_changed,
-                )
-                dpg.add_button(label="Start", callback=self._run_fixed_exp_test)
-                dpg.add_drag_int(default_value=250, tag=self.pulse_delay_exp_tag, width=80, label="Gap (ms)")
-
-            dpg.add_separator()
-
-            # Sin control
-            dpg.add_text("Sin control")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Sin Freq")
-                dpg.add_drag_int(
-                    tag=self.sin_freq_tag,
-                    default_value=0,
-                    min_value=0,
-                    clamped=True,
-                    max_value=512,
-                    width=80,
-                    callback=lambda s, a: self._send_sineact(),
-                )
-                dpg.add_text("Amp")
-                dpg.add_drag_int(
-                    tag=self.sin_amp_tag,
-                    default_value=0,
-                    min_value=0,
-                    clamped=True,
-                    max_value=512,
-                    width=80,
-                    callback=lambda s, a: self._send_sineact(),
-                )
-                dpg.add_button(label="Send", callback=self._send_sineact)
-                dpg.add_button(label="Stop", callback=self._stop_sineact)
-
-            dpg.add_separator()
-
-            # Console log
-            dpg.add_text("Console Log:")
-            dpg.add_input_text(
-                tag=self.console_tag,
-                multiline=True,
-                readonly=True,
-                width=-1,
-                height=100,
-                default_value="",
-            )
 
         self.autosize_window()
         self._refresh_ports()
@@ -344,17 +346,42 @@ class FluoControllerWin(WindowBase):
 
         self.update_permission()
 
+        # Initialize Calibration Dialog with current calibration data (hidden by default)
+        self.calib_dialog = FluoCalibrationWin(
+            serial=self.serial,
+            on_calibration_saved=self._load_act_calibration,
+            parent_uuid=self.UUID,
+            initial_cal_path=self.current_cal_path,
+            show=False,
+        )
+
     def update_permission(self) -> None:
         """
         Adjust module permissions and UI visibility based on app_state.mode.
-        Hide the window if mode is 'user'. Visible only in 'advanced' and 'dev'.
+        In 'user' mode:
+        - Connection (Refresh, port combo, Connect), Cal: Browse + file label, and Test Detection are visible.
+        - Calibrate button, Act PWM µE, Det PWM Fr Wh Wh2, Fv/Fm and all following controls are hidden.
         """
         from core.app_state import app_state
 
-        is_user = app_state.mode == "user"
+        is_user = (app_state.mode == "user")
 
         if dpg.does_item_exist(self.winID):
             dpg.configure_item(self.winID, no_close=is_user)
+
+        if dpg.does_item_exist(self.btn_calibrate_tag):
+            if is_user:
+                dpg.hide_item(self.btn_calibrate_tag)
+            else:
+                dpg.show_item(self.btn_calibrate_tag)
+
+        if dpg.does_item_exist(self.advanced_section_tag):
+            if is_user:
+                dpg.hide_item(self.advanced_section_tag)
+            else:
+                dpg.show_item(self.advanced_section_tag)
+
+        self.autosize_window()
 
     def _refresh_ports(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any) -> None:
         ports = self.serial.get_available_ports()
@@ -541,6 +568,11 @@ class FluoControllerWin(WindowBase):
             if hasattr(self, "cal_label_tag") and dpg.does_item_exist(self.cal_label_tag):
                 dpg.set_value(self.cal_label_tag, filename)
             self._log_to_console(f"Calibration loaded: {filename}")
+
+            self.current_cal_path = os.path.abspath(cal_path)
+            if self.calib_dialog is not None:
+                self.calib_dialog.load_from_dict(cal_data, file_path=self.current_cal_path)
+
             return True
 
         except (json.JSONDecodeError, OSError) as e:
@@ -564,8 +596,12 @@ class FluoControllerWin(WindowBase):
                 serial=self.serial,
                 on_calibration_saved=self._load_act_calibration,
                 parent_uuid=self.UUID,
+                initial_cal_path=self.current_cal_path,
+                show=True,
             )
         else:
+            if self.current_cal_path and self.calib_dialog.loaded_file_path != self.current_cal_path:
+                self.calib_dialog.load_from_file(self.current_cal_path)
             self.calib_dialog.show()
 
     def _on_calibration_file_selected(self, file_path: str, ext: str, *args, **kwargs) -> None:
@@ -994,7 +1030,7 @@ class FluoControllerWin(WindowBase):
         self.is_reading = False
         self._disconnect()
         if self.calib_dialog is not None:
-            self.calib_dialog.on_close()
+            self.calib_dialog.destroy()
         if dpg.does_item_exist(self.winID):
             dpg.delete_item(self.winID)
 
@@ -1002,7 +1038,7 @@ class FluoControllerWin(WindowBase):
         self.is_reading = False
         self._disconnect()
         if self.calib_dialog is not None:
-            self.calib_dialog.on_close()
+            self.calib_dialog.destroy()
         super().close()
 
 
