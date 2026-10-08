@@ -1044,6 +1044,12 @@ class FluoSelectorWin(WindowBase):
             if show_id:
                 start_point = dpg.get_value(self._tag_start_point)
                 sort_strategy = dpg.get_value(self._tag_sort_dir)
+
+                # cv2.putText requires an 8-bit image (CV_8U), but result_to_emit is uint16 (CV_16U).
+                # Render shadow and text to uint8 masks first, then blend onto result_to_emit.
+                shadow_mask = np.zeros((h, w), dtype=np.uint8)
+                text_mask = np.zeros((h, w), dtype=np.uint8)
+
                 for col_idx in range(num_cols):
                     for row_idx in range(num_rows):
                         # Determine coordinates relative to starting point
@@ -1078,9 +1084,23 @@ class FluoSelectorWin(WindowBase):
                         ty = int((row_idx + 1) * cell_h - 5)
                         
                         # Draw black shadow for readability
-                        cv2.putText(result_to_emit, text, (tx + 1, ty + 1), font, font_scale, 0, thickness + 1, cv2.LINE_AA)
-                        # Draw orange/yellow text (value 850 maps to orange in Inferno colormap)
-                        cv2.putText(result_to_emit, text, (tx, ty), font, font_scale, 850, thickness, cv2.LINE_AA)
+                        cv2.putText(shadow_mask, text, (tx + 1, ty + 1), font, font_scale, 255, thickness + 1, cv2.LINE_AA)
+                        # Draw text mask
+                        cv2.putText(text_mask, text, (tx, ty), font, font_scale, 255, thickness, cv2.LINE_AA)
+
+                # Blend text and shadow onto uint16 result_to_emit
+                shadow_alpha = shadow_mask.astype(np.float32) / 255.0
+                text_alpha = text_mask.astype(np.float32) / 255.0
+                if result_to_emit.ndim == 3:
+                    shadow_alpha = shadow_alpha[..., None]
+                    text_alpha = text_alpha[..., None]
+
+                img_f = result_to_emit.astype(np.float32)
+                # Shadow: blend towards 0
+                img_f = img_f * (1.0 - shadow_alpha)
+                # Text: blend towards 850 (value 850 maps to orange in Inferno colormap)
+                img_f = img_f * (1.0 - text_alpha) + 850.0 * text_alpha
+                result_to_emit = np.clip(img_f, 0, 65535).astype(np.uint16)
 
         with self._lock:
             self._last_result = result_to_store.copy()
