@@ -16,7 +16,7 @@ import zipfile
 import json
 import queue
 import pickle
-from config.theme_manager import theme_manager
+from config.theme_manager import highlight, theme_manager
 from config.display_scaling import display_scaling
 from typing import Any
 
@@ -204,14 +204,17 @@ class ImageContainerWin(WindowBase):
             
             dpg.add_separator()
             
-            # Filters
-            with dpg.group(horizontal=True):
-                dpg.add_text("Group:")
-                dpg.add_combo(self.groups, default_value="All", tag=self.group_combo_tag, callback=self._apply_filters, width=120)
-            
-            with dpg.group(horizontal=True):
-                dpg.add_text("Filter:")
-                dpg.add_input_text(hint="Filter filenames...", tag=self.filter_input_tag, callback=self._apply_filters, width=120)
+            # Filters (Highlighted block)
+            filter_block_tag = f"filter_block_{self.UUID}"
+            with dpg.child_window(tag=filter_block_tag, border=True, auto_resize_y=True, width=-1):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Group:")
+                    dpg.add_combo(self.groups, default_value="All", tag=self.group_combo_tag, callback=self._apply_filters, width=120)
+                
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Filter:")
+                    dpg.add_input_text(hint="Filter filenames...", tag=self.filter_input_tag, callback=self._apply_filters, width=120)
+            highlight(filter_block_tag)
 
             dpg.add_separator()
             

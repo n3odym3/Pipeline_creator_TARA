@@ -25,67 +25,12 @@ def get_project_root() -> Path:
 PROJECT_ROOT: Path = get_project_root()
 
 MODULES_DIR: Path = PROJECT_ROOT / "modules"
+LAYOUTS_DIR: Path = PROJECT_ROOT / "layouts"
+SCRIPTS_DIR: Path = PROJECT_ROOT / "scripts"
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
 RESSOURCES_DIR: Path = PROJECT_ROOT / "ressources"
 TUTORIALS_DIR: Path = PROJECT_ROOT / "tutorials"
-
-
-def get_pipelines_dir() -> Path:
-    """
-    Returns the configured pipeline/layout directory.
-    Reads 'default_pipeline_folder' from config.json (Paths section),
-    defaulting to 'pipelines' (or 'layouts' as fallback).
-    Ensures the directory exists before returning.
-    """
-    folder_name = "pipelines"
-    try:
-        from core.config_manager import config
-        configured = config.get("Paths", {}).get("default_pipeline_folder", None)
-        if configured:
-            folder_name = configured
-        elif not (PROJECT_ROOT / "pipelines").exists() and (PROJECT_ROOT / "layouts").exists():
-            folder_name = "layouts"
-    except Exception:
-        if not (PROJECT_ROOT / "pipelines").exists() and (PROJECT_ROOT / "layouts").exists():
-            folder_name = "layouts"
-
-    p = Path(folder_name.lstrip("/\\"))
-    if not p.is_absolute():
-        p = PROJECT_ROOT / p
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def get_scripts_dir() -> Path:
-    """
-    Returns the configured scripts directory.
-    Reads 'default_scripts_folder' from config.json (Paths section),
-    defaulting to 'scripts'.
-    Ensures the directory exists before returning.
-    """
-    folder_name = "scripts"
-    try:
-        from core.config_manager import config
-        configured = config.get("Paths", {}).get("default_scripts_folder", None)
-        if configured:
-            folder_name = configured
-    except Exception:
-        pass
-
-    p = Path(folder_name.lstrip("/\\"))
-    if not p.is_absolute():
-        p = PROJECT_ROOT / p
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def __getattr__(name: str) -> Any:
-    if name in ("LAYOUTS_DIR", "PIPELINES_DIR"):
-        return get_pipelines_dir()
-    if name == "SCRIPTS_DIR":
-        return get_scripts_dir()
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 def load_external_script(module_name: str, file_path: Path) -> Optional[Any]:
     """

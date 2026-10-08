@@ -72,7 +72,33 @@ class NodeCallbacksMixin:
                 dpg.add_separator(parent=self.node_popup_tag)
 
             kind = getattr(instance, "KIND", "")
-            if kind not in ("link_out", "link_in"):
+            if kind == "gate":
+                def _toggle_gate_cb(s: Any, a: Any, u: Any, *args: Any, **kwargs: Any) -> None:
+                    dpg.configure_item(self.node_popup_tag, show=False)
+                    instance.set_open(not instance.is_open, node_id=hovered_node, editor=self)
+
+                dpg.add_button(
+                    label="Toggle Pass-through",
+                    callback=_toggle_gate_cb,
+                    user_data=hovered_node,
+                    parent=self.node_popup_tag,
+                )
+                dpg.add_separator(parent=self.node_popup_tag)
+            elif kind not in ("link_out", "link_in"):
+                def _edit_module_cb(s: Any, a: Any, u: Any, *args: Any, **kwargs: Any) -> None:
+                    dpg.configure_item(self.node_popup_tag, show=False)
+                    from core.module_item_inspector import ModuleItemInspector
+                    target_inst = self.node_map.get(u)
+                    if target_inst:
+                        ModuleItemInspector.open_inspector(target_inst)
+
+                dpg.add_button(
+                    label="Edit Module",
+                    callback=_edit_module_cb,
+                    user_data=hovered_node,
+                    parent=self.node_popup_tag,
+                )
+                dpg.add_separator(parent=self.node_popup_tag)
                 dpg.add_button(
                     label="Rename Node",
                     callback=_rename_cb,
@@ -292,6 +318,23 @@ class NodeCallbacksMixin:
         if src is None or tgt is None:
             return
 
+        if from_node == to_node:
+            logger.warning("Cannot connect a node to itself.")
+            return
+
+        # Enforce single-input constraint for Gate nodes
+        if getattr(tgt, "KIND", "") == "gate":
+            existing_links = [
+                lid for lid, (f_at, t_at) in self.link_map.items()
+                if t_at == to_attr or str(t_at) == str(to_attr)
+            ]
+            if existing_links:
+                logger.warning(
+                    f"Gate '{getattr(tgt, 'label', 'Gate')}' already has an input connection. "
+                    "Only 1 incoming connection is allowed."
+                )
+                return
+
         src_type = src.outputs.get(src_key)
         tgt_types = getattr(tgt, "accepted_input_types", [])
 
@@ -311,6 +354,30 @@ class NodeCallbacksMixin:
             src.connections[src_key].append(tgt)
             dpg.add_node_link(from_attr, to_attr, parent=self.editor_tag, tag=link_id)
             self.link_map[link_id] = (from_attr, to_attr)
+
+            # Dynamic IOType deduction for Gate nodes
+            if getattr(tgt, "KIND", "") == "gate":
+                if src_type and src_type != IOTypes.ANY:
+                    tgt.set_io_type(src_type)
+                elif hasattr(self, "_refresh_gate_io_type"):
+                    self._refresh_gate_io_type(tgt)
+
+            if getattr(src, "KIND", "") == "gate":
+                if src.io_type == IOTypes.ANY and tgt_types:
+                    concrete = [t for t in tgt_types if t != IOTypes.ANY]
+                    if concrete:
+                        src.set_io_type(concrete[0])
+                elif hasattr(self, "_refresh_gate_io_type"):
+                    self._refresh_gate_io_type(src)
+
+            # Immediate configuration for Working Directory output links
+            if getattr(src, "KIND", "") == "working_dir" and src_key == "Folder":
+                try:
+                    from core.working_directory_manager import working_directory_manager
+                    current_dir = str(working_directory_manager.get_directory())
+                    tgt.input_cb(data=current_dir, data_type=IOTypes.FOLDER_PATH)
+                except Exception as e:
+                    logger.error(f"Error configuring newly connected module with working directory: {e}")
 
     def delink_callback(self, sender: int, app_data: int, user_data: Any = None, *args: Any) -> None:
         """
@@ -342,6 +409,12 @@ class NodeCallbacksMixin:
                 logger.warning("Unable to disconnect nodes cleanly.")
 
         dpg.delete_item(link_id)
+
+        # Refresh Gate IOType if disconnected
+        if getattr(src, "KIND", "") == "gate" and hasattr(self, "_refresh_gate_io_type"):
+            self._refresh_gate_io_type(src)
+        if getattr(tgt, "KIND", "") == "gate" and hasattr(self, "_refresh_gate_io_type"):
+            self._refresh_gate_io_type(tgt)
 
     def _show_incompatible_types_warning(self, src_type: Any, tgt_types: List[Any]) -> None:
         """Show a popup warning when trying to connect incompatible types."""

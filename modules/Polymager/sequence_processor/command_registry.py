@@ -201,7 +201,33 @@ def cmd_offset_detection(cmd: str, match: re.Match[str] | None) -> dict[str, obj
 		}
 	}
 
-@register_command(r"(?i)v")
+@register_command(r"(?i)^v(\d+)(ms|s|m|h)$")
+def cmd_video(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
+	if match is None:
+		return {"description": "Record video for [time][unit] (e.g. V30s, V1m, V100ms)"}
+
+	duration_val = int(match.group(1))
+	unit = match.group(2).lower()
+	duration_s = {
+		"ms": duration_val / 1000.0,
+		"s": float(duration_val),
+		"m": duration_val * 60.0,
+		"h": duration_val * 3600.0,
+	}[unit]
+
+	return {
+		"valid": True,
+		"description": f"Record Video for {duration_val}{unit}",
+		"duration": duration_s,
+		"wait_feedback": True,
+		"cmd": {
+			"record_video": True,
+			"start": True,
+			"duration": duration_s,
+		}
+	}
+
+@register_command(r"(?i)^v$")
 def cmd_fvfm(cmd: str) -> dict[str, object]:
 	return {
 		"valid": True,
@@ -213,7 +239,7 @@ def cmd_fvfm(cmd: str) -> dict[str, object]:
 		}
 	}
 
-@register_command(r"(?i)d")
+@register_command(r"(?i)^d$")
 def cmd_d(cmd: str) -> dict[str, object]:
 	return {
 		"valid": True,
@@ -251,12 +277,22 @@ def cmd_group(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	if match is None:
 		return {"description": "Set group name GNAME"}
 	
-	group_name = match.group(1)
+	from .sequence_processor import sequence_processor
+	raw_cmd = sequence_processor.current_raw_cmd
+	raw_match = re.match(r'(?i)^g\s*(.+)$', raw_cmd.strip()) if raw_cmd else None
+	if raw_match:
+		group_name = raw_match.group(1).strip()
+	else:
+		group_name = match.group(1).strip()
+
 	return {
 		"valid": True,
 		"description": f"Set group to: {group_name}",
 		"duration": 0,
-		"cmd": {}
+		"cmd": {
+			"group": group_name,
+			"prefix": group_name,
+		}
 	}
 
 @register_command(r"(?i)ojip\s+(\d+)\s+(\d+)\s+(\d+)")
@@ -297,10 +333,10 @@ def cmd_pdet(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 		}
 	}
 
-@register_command(r"(?i)r(\d+)?")
+@register_command(r"(?i)^\s*(?:ref\s*(\d+)?|r)\s*$")
 def cmd_ref(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	if match is None:
-		return {"description": "Capture Dark Reference [exposure]? optionally"}
+		return {"description": "Capture Dark Reference: R, ref, or ref [exposure]"}
 	
 	exposure = match.group(1)
 	description = "Capture Dark Reference"
@@ -382,6 +418,58 @@ def cmd_manual(cmd: str) -> dict[str, object]:
 	}
 
 
+@register_command(r"(?i)^(?:(?:r|g|b|w|ir)\s*\d+\s*)+$")
+def cmd_light_channels(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
+	min_val = 0
+	max_val = 1000
+
+	if match is None or not cmd.strip():
+		return {"description": "Set Light channels R[val]G[val]B[val]W[val]IR[val] (e.g. R100, R100G50)"}
+
+	pairs = re.findall(r'(?i)(r|g|b|w|ir)\s*(\d+)', cmd)
+	if not pairs:
+		return {
+			"valid": False,
+			"description": "Invalid light command syntax. Use R[val]G[val]B[val]W[val]IR[val].",
+			"duration": 0,
+			"error": "No valid channel and intensity pairs found",
+			"cmd": {}
+		}
+
+	payload = {"r": 0, "g": 0, "b": 0, "w": 0, "ir": 0}
+	descriptions = []
+	for channel_name, intensity_str in pairs:
+		channel = channel_name.lower()
+		intensity = int(intensity_str)
+
+		if not (min_val <= intensity <= max_val):
+			return {
+				"valid": False,
+				"description": f"Light {channel.upper()} intensity {intensity} out of bounds ({min_val}-{max_val})",
+				"duration": 0,
+				"error": f"Value for {channel} must be between {min_val} and {max_val}",
+				"cmd": {}
+			}
+		payload[channel] = intensity
+		descriptions.append(f"{channel.upper()}:{intensity}")
+
+	import json
+	return {
+		"valid": True,
+		"description": f"Set Light " + ", ".join(descriptions),
+		"duration": 1,
+		"cmd": {
+			"light": payload,
+			"r": payload["r"],
+			"g": payload["g"],
+			"b": payload["b"],
+			"w": payload["w"],
+			"ir": payload["ir"],
+			"send": json.dumps(payload),
+		}
+	}
+
+
 @register_command(r"(?i)rgbw\s*(.*)")
 def cmd_rgbw(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	min_val = 0
@@ -425,7 +513,13 @@ def cmd_rgbw(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 		"description": f"Set RGBW " + ", ".join(descriptions),
 		"duration": 1,
 		"cmd": {
-			"send": json.dumps(payload)
+			"light": payload,
+			"r": payload["r"],
+			"g": payload["g"],
+			"b": payload["b"],
+			"w": payload["w"],
+			"ir": payload["ir"],
+			"send": json.dumps(payload),
 		}
 	}
 
@@ -492,16 +586,19 @@ def cmd_send(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 @register_command(r"(?i)ox\s*(0|1)")
 def cmd_ox(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	if match is None:
-		return {"description": "Oxygen polling: ox [0|1]"}
+		return {"description": "Oxygen recording: ox [0|1]"}
 
 	state = int(match.group(1))
 	active = (state == 1)
 	return {
 		"valid": True,
-		"description": f"Oxygen polling: {'ON' if active else 'OFF'}",
+		"description": f"Oxygen recording: {'ON' if active else 'OFF'}",
 		"duration": 1,
 		"cmd": {
-			"polling": active
+			"ox": active,
+			"polling": active,
+			"save_sequence": active,
+			"record": active,
 		}
 	}
 

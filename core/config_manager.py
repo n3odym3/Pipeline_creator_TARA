@@ -18,7 +18,7 @@ from core.paths import CONFIG_DIR
 
 class ConfigManager(dict[str, Any]):
     """
-    Configuration manager.
+    Thread-safe and helper-enabled configuration manager.
     Inherits from dict for transparent backwards compatibility with config["key"].
     """
 
@@ -55,6 +55,9 @@ class ConfigManager(dict[str, Any]):
     def get_nested(self, *keys: str, default: Any = None) -> Any:
         """
         Safely fetch a deeply nested configuration value.
+
+        Example:
+            config.get_nested("theme", "colors", "background", default="#000000")
         """
         current: Any = self
         for key in keys:

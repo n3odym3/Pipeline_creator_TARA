@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 MAIN_PIPELINE = None
-OUTPUT_DIR = "C:/Users/gerva/Desktop/Pipeline_creator_compil"
+OUTPUT_DIR = "C:/Users/gerva/Desktop/Pipeline_creator_compil_TARA"
 
 def _get_module_metadata_statically_for_build(filepath):
     """Statically parse module classes/names via AST for legacy label mapping."""

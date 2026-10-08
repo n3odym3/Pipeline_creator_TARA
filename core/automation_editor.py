@@ -25,13 +25,15 @@ from core.automation_manager import automation_manager
 
 AVAILABLE_ACTIONS: List[Tuple[str, str, str]] = [
     ("fullscreen", "Fullscreen", "Toggle application fullscreen mode"),
-    ("set_workspace", "Set Workspace", "Set the working directory (CWD)"),
+    ("set_workspace", "Set Workspace", "Set specific working directory path"),
+    ("browse_workspace", "Browse Workspace", "Prompt user with native folder browser to choose working directory"),
     ("load_pipeline", "Load Pipeline", "Load and reconstruct a pipeline layout (.json)"),
     ("apply_view", "Apply View", "Apply a named view layout preset"),
     ("send_command", "Send Command", "Send a CMD_DICT message to a specific module"),
     ("trigger", "Trigger Method", "Call a specific method on a module"),
     ("wait", "Wait / Delay", "Pause execution for specified duration (seconds)"),
 ]
+
 
 class AutomationEditor:
     """
@@ -73,7 +75,10 @@ class AutomationEditor:
         self.current_filepath = None
         self.script_data = {
             "name": "Untitled Automation",
-            "steps": [],
+            "steps": [
+                {"action": "fullscreen", "enabled": True},
+                {"action": "load_pipeline", "path": "/layouts/Radial_Counter.json"},
+            ],
         }
         self.selected_step_idx = 0
 
@@ -113,9 +118,6 @@ class AutomationEditor:
             if not target:
                 return False
 
-        if not target.lower().endswith(".json"):
-            target += ".json"
-
         try:
             with open(target, "w", encoding="utf-8") as f:
                 json.dump(self.script_data, f, indent=4)
@@ -125,6 +127,10 @@ class AutomationEditor:
         except Exception as e:
             logger.error(f"Failed to save automation script to '{target}': {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Pipeline Context (Layout module & view discovery)
+    # ------------------------------------------------------------------
 
     def _get_pipeline_context(self) -> Dict[str, Any]:
         """Find the most relevant layout loaded in this script and extract its modules and views."""
@@ -211,6 +217,10 @@ class AutomationEditor:
         self._populate_steps_list()
         self._populate_step_details()
 
+    # ------------------------------------------------------------------
+    # UI Construction
+    # ------------------------------------------------------------------
+
     def _build_ui(self, active_tab: Optional[str] = None) -> None:
         """Create or recreate the Automation Editor window."""
         if active_tab:
@@ -259,7 +269,7 @@ class AutomationEditor:
         if self.active_tab and dpg.does_item_exist(self.active_tab):
             dpg.set_value(f"{self.winID}_tabs", self.active_tab)
 
-    def _on_tab_changed(self, sender: Any, app_data: Any, user_data: Any) -> None:
+    def _on_tab_changed(self, sender: Any, app_data: Any, user_data: Any, *args, **kwargs) -> None:
         self.active_tab = app_data
         if app_data == f"{self.winID}_tab_json":
             self._sync_to_raw_json()
@@ -325,6 +335,10 @@ class AutomationEditor:
             with dpg.tooltip(parent=dpg.last_item()):
                 dpg.add_text("Execute all steps of this automation script immediately.")
 
+    # ------------------------------------------------------------------
+    # TAB 1: Steps Flow
+    # ------------------------------------------------------------------
+
     def _build_steps_tab(self) -> None:
         """Visual sequence of automation steps on the left, step detail inspector on the right."""
         s = display_scaling.scale
@@ -374,7 +388,11 @@ class AutomationEditor:
         if action == "fullscreen":
             state = "Enabled" if step.get("enabled", True) else "Disabled"
             return f"[{idx+1}] Fullscreen ({state})"
+        elif action in ("browse_workspace", "browse_working_dir", "select_workspace"):
+            return f"[{idx+1}] Browse Workspace (Interactive)"
         elif action == "set_workspace":
+            if step.get("browse", False) or not step.get("path"):
+                return f"[{idx+1}] Browse Workspace (Interactive)"
             p = Path(step.get("path", "")).name or step.get("path", "N/A")
             return f"[{idx+1}] Set Workspace: {p}"
         elif action == "load_pipeline":
@@ -473,6 +491,9 @@ class AutomationEditor:
             dpg.add_separator()
             dpg.add_spacer(height=s(4))
 
+            # ------------------------------------------------------------------
+            # Dynamic Fields based on Action Type
+            # ------------------------------------------------------------------
             if action == "fullscreen":
                 dpg.add_checkbox(
                     label="Maximize Viewport (Fullscreen)",
@@ -481,18 +502,32 @@ class AutomationEditor:
                 )
 
             elif action == "set_workspace":
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Directory Path:")
-                    dpg.add_input_text(
-                        default_value=str(step.get("path", "")),
-                        width=s(320),
-                        callback=lambda s, a, u, *args: (step.__setitem__("path", a.strip()), self._populate_steps_list()),
-                    )
-                    dpg.add_button(
-                        label="Browse...",
-                        callback=lambda: self._on_browse_workspace_path(step),
-                        width=s(90),
-                    )
+                dpg.add_checkbox(
+                    label="Prompt User (Open Folder Browser Dialog at Execution)",
+                    default_value=bool(step.get("browse", False)),
+                    callback=lambda s, a, u, *args: (
+                        step.__setitem__("browse", bool(a)),
+                        self._populate_steps_list(),
+                        self._populate_step_details(),
+                    ),
+                )
+                if not step.get("browse", False):
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Directory Path:")
+                        dpg.add_input_text(
+                            default_value=str(step.get("path", "")),
+                            width=s(320),
+                            callback=lambda s, a, u, *args: (step.__setitem__("path", a.strip()), self._populate_steps_list()),
+                        )
+                        dpg.add_button(
+                            label="Browse...",
+                            callback=lambda: self._on_browse_workspace_path(step),
+                            width=s(90),
+                        )
+
+            elif action in ("browse_workspace", "browse_working_dir", "select_workspace"):
+                dpg.add_text("This step opens the native OS folder picker when executed,", color=(180, 220, 255))
+                dpg.add_text("allowing the user to choose the working directory interactively.")
 
             elif action == "load_pipeline":
                 layout_files = (
@@ -659,6 +694,10 @@ class AutomationEditor:
                         callback=lambda s, a, u, *args: (step.__setitem__("seconds", round(float(a), 2)), self._populate_steps_list()),
                     )
 
+    # ------------------------------------------------------------------
+    # Step Operations & Presets
+    # ------------------------------------------------------------------
+
     def _on_select_step(self, idx: int) -> None:
         self.selected_step_idx = idx
         self._populate_steps_list()
@@ -672,7 +711,7 @@ class AutomationEditor:
             if new_action == "fullscreen" and "enabled" not in step:
                 step["enabled"] = True
             elif new_action == "load_pipeline" and "path" not in step:
-                step["path"] = ""
+                step["path"] = "/layouts/Radial_Counter.json"
             elif new_action == "apply_view" and "view_name" not in step:
                 step["view_name"] = "default"
             elif new_action == "send_command":
@@ -758,7 +797,7 @@ class AutomationEditor:
             self._populate_step_details()
 
     def _on_browse_workspace_path(self, step: Dict[str, Any]) -> None:
-        chosen = file_explorer.select_directory(default_path=str(PROJECT_ROOT))
+        chosen = file_explorer.select_folder(default_path=str(PROJECT_ROOT))
         if chosen:
             step["path"] = str(chosen)
             self._populate_steps_list()
@@ -778,6 +817,10 @@ class AutomationEditor:
                 step["path"] = str(p.resolve())
             self._populate_steps_list()
             self._populate_step_details()
+
+    # ------------------------------------------------------------------
+    # TAB 2: Raw JSON
+    # ------------------------------------------------------------------
 
     def _build_json_tab(self) -> None:
         """Raw JSON editing tab with format validation and live synchronization."""
@@ -860,6 +903,10 @@ class AutomationEditor:
         if dpg.does_item_exist(status_tag):
             dpg.set_value(status_tag, self.json_status)
             dpg.configure_item(status_tag, color=self.json_status_color)
+
+    # ------------------------------------------------------------------
+    # Top & Bottom Bar Callbacks
+    # ------------------------------------------------------------------
 
     def _on_select_script_combo(self, chosen_name: str, file_map: Dict[str, str]) -> None:
         if chosen_name in file_map:

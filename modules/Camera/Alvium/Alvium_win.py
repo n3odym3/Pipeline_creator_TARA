@@ -570,7 +570,7 @@ class Alvium_win(WindowBase):
                 except Exception as e:
                     logger.error(f"Error sending frame to {module}: {e}")
 
-    def _update_gamma(self, sender: Any, app_data: Any, user_data: Any = None) -> None:
+    def _update_gamma(self, sender: Any, app_data: Any, user_data: Any = None, *args, **kwargs) -> None:
         self.gamma_val = app_data
         invGamma = 1.0 / max(0.1, app_data)
 

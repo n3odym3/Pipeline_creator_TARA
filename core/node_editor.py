@@ -11,9 +11,10 @@ from core.input_output_types import IOTypes
 from core.module_registry import MODULES_REGISTRY, get_available_modules
 from core.node_callbacks import NodeCallbacksMixin
 from core.node_highlight import NodeHighlightMixin
-from core.node_link_proxies import _LinkInNode, _LinkOutNode
+from core.node_link_proxies import _GateNode, _LinkInNode, _LinkOutNode, _WorkingDirNode
 from core.node_popup import NodePopupMixin
 from core.node_serialization import NodeSerializationMixin
+from core.working_directory_manager import working_directory_manager
 
 
 class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSerializationMixin):
@@ -80,7 +81,15 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
         win_h = 600
         init_pos = (max(0, (vp_w - win_w) // 2), max(0, (vp_h - win_h) // 2))
 
-        with dpg.window(label=label, width=win_w, height=win_h, pos=init_pos, tag=self.winID, show=False):
+        with dpg.window(
+            label=label,
+            width=win_w,
+            height=win_h,
+            pos=init_pos,
+            tag=self.winID,
+            show=False,
+            on_close=self._on_window_close,
+        ):
             # Menu bar
             with dpg.menu_bar():
                 # Load
@@ -237,6 +246,31 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
                             "Forwards received data to physically connected nodes.",
                             wrap=300,
                         )
+                    dpg.add_button(
+                        label="Gate",
+                        tag=f"{self.popup_tag}_btn_gate",
+                        callback=self._add_gate_node,
+                        width=-1,
+                    )
+                    with dpg.tooltip(parent=f"{self.popup_tag}_btn_gate"):
+                        dpg.add_text(
+                            "Pass-through Gate node.\n"
+                            "Dynamically deduces IO type from connections.\n"
+                            "Controls whether data is routed downstream, configurable per View.",
+                            wrap=300,
+                        )
+                    dpg.add_button(
+                        label="Working Directory",
+                        tag=f"{self.popup_tag}_btn_working_dir",
+                        callback=self._add_working_dir_node,
+                        width=-1,
+                    )
+                    with dpg.tooltip(parent=f"{self.popup_tag}_btn_working_dir"):
+                        dpg.add_text(
+                            "Global Workspace Working Directory node.\n"
+                            "Emits the folder path to connected modules whenever set or changed.",
+                            wrap=300,
+                        )
 
                 dpg.add_separator()
 
@@ -273,8 +307,21 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
         dpg.focus_item(self.winID)
         dpg.focus_item(self.editor_tag)
 
+    def _on_window_close(
+        self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any
+    ) -> None:
+        """Handler called when NodeEditor window is closed. Cleans up highlights and all module inspectors."""
+        from core.module_item_inspector import ModuleItemInspector
+
+        ModuleItemInspector.close_all()
+        self._clear_highlights()
+
     def hide(self) -> None:
-        """Hide the node editor window."""
+        """Hide the node editor window and close open inspectors."""
+        from core.module_item_inspector import ModuleItemInspector
+
+        ModuleItemInspector.close_all()
+        self._clear_highlights()
         dpg.hide_item(self.winID)
 
     def get_mouse_pos(self) -> Tuple[Tuple[float, float], Tuple[float, float]]:
@@ -417,7 +464,7 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
             pass
         return False
 
-    def _on_delete_key(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_delete_key(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Handles Delete / Backspace key press to delete selected nodes and links if not editing text."""
         if not dpg.does_item_exist(self.winID) or not dpg.is_item_shown(self.winID):
             return
@@ -429,7 +476,7 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
             return
         self._on_clear_selection()
 
-    def _on_escape_key(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_escape_key(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Handles Escape key press to deselect nodes only when node editor window is focused or hovered."""
         if not dpg.does_item_exist(self.winID) or not dpg.is_item_shown(self.winID):
             return
@@ -547,6 +594,195 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
         self._create_link_in_node(self.mouse_pos)
         dpg.configure_item(self.popup_tag, show=False)
 
+    def _create_gate_node(self, pos: Tuple[float, float], proxy: Optional[_GateNode] = None) -> int:
+        """
+        Create the DPG node widget for a Gate built-in node.
+
+        Structure:
+            node
+            ├── node_attribute (Input)  ← "In" with IOType tooltip annotation (1 incoming connection max)
+            ├── node_attribute (Static) → checkbox pass-through, name input
+            └── node_attribute (Output) → "Out" with IOType tooltip annotation (multi-outputs allowed)
+        """
+        if proxy is None:
+            proxy = _GateNode()
+
+        node_label = proxy.label or "Gate"
+        type_str = proxy.get_type_str()
+
+        with dpg.node(label=node_label, parent=self.editor_tag, pos=pos) as node_id:
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, tag=f"{node_id}_In"):
+                dpg.add_text("In")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(f"IOType: {type_str}", tag=proxy._in_tooltip_text_tag, color=(150, 255, 150))
+
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
+                dpg.add_checkbox(
+                    label="Pass",
+                    tag=proxy._checkbox_tag,
+                    default_value=proxy.is_open,
+                    callback=lambda s, a, u: proxy.set_open(a, node_id=node_id, editor=self),
+                )
+                dpg.add_input_text(
+                    tag=proxy._name_input_tag,
+                    default_value=proxy.label,
+                    hint="Gate Name",
+                    width=120,
+                    on_enter=False,
+                    callback=lambda s, a, u: proxy.set_label(a, node_id=node_id),
+                )
+
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, tag=f"{node_id}_Out"):
+                dpg.add_text("Out")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(f"IOType: {type_str}", tag=proxy._out_tooltip_text_tag, color=(150, 255, 150))
+
+        proxy.node_id = node_id
+        proxy.editor = self
+        self.node_map[node_id] = proxy
+        return node_id
+
+    def _add_gate_node(
+        self, sender: int = 0, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any
+    ) -> None:
+        """Popup button callback — add a Gate node at the last right-click position."""
+        self._popup_click_handled = True
+        self._create_gate_node(self.mouse_pos)
+        dpg.configure_item(self.popup_tag, show=False)
+
+    def _create_working_dir_node(self, pos: Tuple[float, float], proxy: Optional[_WorkingDirNode] = None) -> int:
+        """
+        Create the DPG node widget for a Working Directory built-in node.
+
+        Structure:
+            node ("Working Directory")
+            ├── node_attribute (Input)  ← "In" (accepts FOLDER_PATH / TRIGGER to update or resend)
+            ├── node_attribute (Static) → Browse button, Resend button, path label
+            ├── node_attribute (Output) → "Folder" (IOTypes.FOLDER_PATH)
+            └── node_attribute (Output) → "Trigger" (IOTypes.TRIGGER)
+        """
+        if proxy is None:
+            proxy = _WorkingDirNode()
+
+        with dpg.node(label=proxy.label, parent=self.editor_tag, pos=pos) as node_id:
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, tag=f"{node_id}_In"):
+                dpg.add_text("In")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("IOType: Folder Path / Trigger / Cmd\nSets workspace folder or triggers re-send.", color=(150, 255, 150))
+
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Browse", callback=lambda *a: proxy.on_browse_clicked())
+                    dpg.add_button(label="\uf064", callback=lambda *a: proxy.emit_directory())
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Broadcast current working directory to downstream connections")
+                display_init = proxy._format_display_path(working_directory_manager.get_directory())
+                dpg.add_text(display_init, tag=proxy._dir_text_tag, color=(180, 220, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Current global workspace directory")
+
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, tag=f"{node_id}_Folder"):
+                dpg.add_text("Folder")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("IOType: Folder Path", color=(150, 255, 150))
+
+            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, tag=f"{node_id}_Trigger"):
+                dpg.add_text("Trigger")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("IOType: Trigger", color=(150, 255, 150))
+
+        proxy.node_id = node_id
+        proxy.editor = self
+        self.node_map[node_id] = proxy
+        return node_id
+
+    def _add_working_dir_node(
+        self, sender: int = 0, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any
+    ) -> None:
+        """Popup button callback — add a Working Directory node at the last right-click position."""
+        self._popup_click_handled = True
+        self._create_working_dir_node(self.mouse_pos)
+        dpg.configure_item(self.popup_tag, show=False)
+
+    def _refresh_gate_io_type(self, gate_proxy: _GateNode) -> None:
+        """
+        Re-evaluate the inferred IOType of a Gate node based on its current links.
+        If an incoming link exists, use the source output's type.
+        Else if outgoing links exist with a concrete type, use the first concrete type.
+        Otherwise, reset to IOTypes.ANY.
+        """
+        if not hasattr(gate_proxy, "node_id") or not gate_proxy.node_id:
+            for nid, inst in self.node_map.items():
+                if inst is gate_proxy:
+                    gate_proxy.node_id = nid
+                    break
+
+        if not gate_proxy.node_id:
+            return
+
+        gate_in_attr = f"{gate_proxy.node_id}_In"
+        gate_out_attr = f"{gate_proxy.node_id}_Out"
+
+        # 1. Check incoming link
+        for lid, (f_attr, t_attr) in self.link_map.items():
+            if t_attr == gate_in_attr or str(t_attr) == str(gate_in_attr):
+                src_nid = dpg.get_item_parent(f_attr)
+                src_inst = self.node_map.get(src_nid)
+                if src_inst:
+                    src_key = self._find_output_key(src_nid, f_attr)
+                    if src_key and src_key in getattr(src_inst, "outputs", {}):
+                        s_type = src_inst.outputs[src_key]
+                        if s_type and s_type != IOTypes.ANY:
+                            gate_proxy.set_io_type(s_type)
+                            return
+
+        # 2. Check outgoing links
+        for lid, (f_attr, t_attr) in self.link_map.items():
+            if f_attr == gate_out_attr or str(f_attr) == str(gate_out_attr):
+                tgt_nid = dpg.get_item_parent(t_attr)
+                tgt_inst = self.node_map.get(tgt_nid)
+                if tgt_inst:
+                    tgt_types = getattr(tgt_inst, "accepted_input_types", [])
+                    concrete = [t for t in tgt_types if t != IOTypes.ANY]
+                    if concrete:
+                        gate_proxy.set_io_type(concrete[0])
+                        return
+
+        # 3. No concrete links left -> reset to ANY
+        gate_proxy.set_io_type(IOTypes.ANY)
+
+    def get_gate_states(self) -> Dict[str, Any]:
+        """Collect the current pass-through state of all Gate nodes."""
+        states = {}
+        for node_id, inst in self.node_map.items():
+            if getattr(inst, "KIND", "") == "gate":
+                uuid = getattr(inst, "UUID", str(node_id))
+                states[uuid] = {
+                    "is_open": getattr(inst, "is_open", True),
+                    "label": getattr(inst, "label", "Gate"),
+                }
+        return states
+
+    def set_gate_states(self, states: Dict[str, Any]) -> None:
+        """Apply pass-through states to matching Gate nodes (by UUID or label)."""
+        if not states or not isinstance(states, dict):
+            return
+
+        for node_id, inst in self.node_map.items():
+            if getattr(inst, "KIND", "") == "gate":
+                uuid = getattr(inst, "UUID", "")
+                label = getattr(inst, "label", "")
+
+                val = None
+                if uuid and uuid in states:
+                    val = states[uuid]
+                elif label and label in states:
+                    val = states[label]
+
+                if val is not None:
+                    is_open = val.get("is_open", val) if isinstance(val, dict) else bool(val)
+                    inst.set_open(is_open, node_id=node_id, editor=self)
+
     def delete_node(self, sender: int, app_data: Any, node_id: int, *args: Any) -> None:
         """Delete a node and all its links from the editor."""
         if node_id not in self.node_map:
@@ -561,12 +797,18 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
             if dpg.get_item_parent(from_attr) == node_id or dpg.get_item_parent(to_attr) == node_id
         ]
 
+        gates_to_refresh = set()
         for link_id in to_remove:
             from_attr, to_attr = self.link_map[link_id]
             from_node = dpg.get_item_parent(from_attr)
             to_node = dpg.get_item_parent(to_attr)
             src = self.node_map.get(from_node)
             tgt = self.node_map.get(to_node)
+
+            if getattr(src, "KIND", "") == "gate":
+                gates_to_refresh.add(src)
+            if getattr(tgt, "KIND", "") == "gate":
+                gates_to_refresh.add(tgt)
 
             if src and tgt:
                 src_key = self._find_output_key(from_node, from_attr)
@@ -576,6 +818,10 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
             if link_id in self.link_map:
                 del self.link_map[link_id]
 
+        for g in gates_to_refresh:
+            if g is not self.node_map.get(node_id):
+                self._refresh_gate_io_type(g)
+
         pinned = getattr(self, "_pinned_node_labels", {})
         if node_id in pinned:
             label = pinned.pop(node_id)
@@ -584,6 +830,14 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
 
                 main_win.remove_pinned_menu_item(label)
             except ImportError:
+                pass
+
+        if node_id in self.node_map:
+            try:
+                from core.module_item_inspector import ModuleItemInspector
+
+                ModuleItemInspector.close_inspector(self.node_map[node_id])
+            except Exception:
                 pass
 
         if hasattr(self.node_map[node_id], "close"):
@@ -597,7 +851,9 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
     ) -> None:
         """Delete all nodes and links from the editor and reset mappings."""
         from core.module_registry import clear_registry
+        from core.module_item_inspector import ModuleItemInspector
 
+        ModuleItemInspector.close_all()
         self._clear_highlights()
 
         for link_id in list(self.link_map.keys()):
@@ -784,15 +1040,36 @@ class NodeEditor(NodeHighlightMixin, NodePopupMixin, NodeCallbacksMixin, NodeSer
         if not instance:
             return None
 
+        attr_str = str(attr_id)
+        if dpg.does_item_exist(attr_id):
+            alias = dpg.get_item_alias(attr_id)
+            if alias:
+                attr_str = alias
+
         prefix = f"{node_id}_"
-        if isinstance(attr_id, str) and attr_id.startswith(prefix):
-            key = attr_id[len(prefix):]
+        if attr_str.startswith(prefix):
+            key = attr_str[len(prefix):]
             if key in getattr(instance, "outputs", {}):
                 return key
 
         output_ids = self._get_output_IDs(node_id)
         for idx, oid in enumerate(output_ids):
-            if oid == attr_id or str(oid) == str(attr_id):
+            oid_str = str(oid)
+            if dpg.does_item_exist(oid):
+                alias = dpg.get_item_alias(oid)
+                if alias:
+                    oid_str = alias
+
+            if (
+                oid == attr_id
+                or str(oid) == str(attr_id)
+                or oid_str == attr_str
+                or (
+                    dpg.does_item_exist(oid)
+                    and dpg.does_item_exist(attr_id)
+                    and dpg.get_alias_id(oid) == dpg.get_alias_id(attr_id)
+                )
+            ):
                 try:
                     return list(instance.outputs.keys())[idx]
                 except IndexError:

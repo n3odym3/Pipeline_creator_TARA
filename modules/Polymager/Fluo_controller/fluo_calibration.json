@@ -2,6 +2,10 @@
     "act_calibration": {
         "threshold": 150,
         "low_cal": {
+            "model": {
+                "type": "polynomial",
+                "degree": 3
+            },
             "pwm": [
                 5,
                 10,
@@ -38,6 +42,10 @@
             ]
         },
         "high_cal": {
+            "model": {
+                "type": "polynomial",
+                "degree": 2
+            },
             "adim": [
                 10,
                 20,
@@ -52,9 +60,9 @@
                 512
             ],
             "intensity": [
-                50,
+                50.0,
                 102.5,
-                149,
+                149.0,
                 194.8,
                 244.7,
                 473.8,

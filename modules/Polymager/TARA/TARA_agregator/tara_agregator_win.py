@@ -217,7 +217,7 @@ class TaraAggregatorWin(WindowBase):
             else:
                 dpg.set_value(self.replace_combo_tag, "None")
 
-    def _clear_table(self) -> None:
+    def _clear_table(self, *args, **kwargs) -> None:
         self.rows = []
         self._request_rebuild()
 
@@ -296,12 +296,12 @@ class TaraAggregatorWin(WindowBase):
                 else:
                     dpg.add_text(parent=row_id, default_value=str(val), tag=tag)
 
-    def _on_cell_edited(self, sender: Any, app_data: Any, user_data: Any) -> None:
+    def _on_cell_edited(self, sender: Any, app_data: Any, user_data: Any, *args, **kwargs) -> None:
         r_idx, col = user_data
         if 0 <= r_idx < len(self.rows):
             self.rows[r_idx][col] = app_data
 
-    def _delete_row(self, sender: Any, app_data: Any, user_data: Any) -> None:
+    def _delete_row(self, sender: Any, app_data: Any, user_data: Any, *args, **kwargs) -> None:
         r_idx = user_data
         if 0 <= r_idx < len(self.rows):
             self.rows.pop(r_idx)
@@ -331,7 +331,7 @@ class TaraAggregatorWin(WindowBase):
 
         from core.file_explorer import file_explorer
 
-        def save_callback(file_path: str | None, selected_ext: str) -> None:
+        def save_callback(file_path: str | None, selected_ext: str, *args, **kwargs) -> None:
             if file_path:
                 if not file_path.endswith(".csv"):
                     file_path += ".csv"

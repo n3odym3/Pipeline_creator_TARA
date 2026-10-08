@@ -96,7 +96,7 @@ class Sample_container_win(WindowBase):
 		if hasattr(self, "duplicate_mode_tag") and dpg.does_item_exist(self.duplicate_mode_tag):
 			dpg.set_value(self.duplicate_mode_tag, self._duplicate)
 
-	def _on_duplicate_cb(self, sender, app_data, user_data=None):
+	def _on_duplicate_cb(self, sender, app_data, user_data=None, *args, **kwargs):
 		self._duplicate = app_data
 	
 	def _get_base_dir(self):
@@ -473,14 +473,14 @@ class Sample_container_win(WindowBase):
 					writer.writerow(row)
 		return True
 
-	def _export_csv_cb(self, sender, app_data, user_data=None):
+	def _export_csv_cb(self, sender, app_data, user_data=None, *args, **kwargs):
 		"""Open file dialog and export selected samples to CSV."""
 		selected_samples = self._get_selected_samples()
 		if not selected_samples:
 			logger.warning("Export aborted: no samples selected.")
 			return
 
-		def save_callback(file_path, selected_ext):
+		def save_callback(file_path, selected_ext, *args, **kwargs):
 			if not file_path:
 				return
 			if not file_path.endswith(".csv"):
@@ -528,9 +528,9 @@ class Sample_container_win(WindowBase):
 		except Exception as e:
 			logger.error(f"Failed to auto-save CSV: {e}")
 
-	def _import_csv_cb(self, sender, app_data, user_data=None):
+	def _import_csv_cb(self, sender, app_data, user_data=None, *args, **kwargs):
 		"""Open file explorer to select a CSV and import samples."""
-		def load_callback(file_path, selected_ext=None):
+		def load_callback(file_path, selected_ext=None, *args, **kwargs):
 			if not file_path:
 				return
 			

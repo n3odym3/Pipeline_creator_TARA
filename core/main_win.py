@@ -74,8 +74,14 @@ class MainWin:
         self._create_window()
         self._register_keyboard_shortcuts()
 
+        # Apply menu visibility for the current mode (dev by default at init
+        # time; will be refreshed after the login dialog completes).
         self.apply_mode_visibility()
     
+    # ------------------------------------------------------------------
+    # Mode visibility  (logic is local – reads app_state directly)
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _mode_allows(feature: str, mode: str) -> bool:
         """
@@ -124,6 +130,10 @@ class MainWin:
 
         # Apply the view layout for this mode (no-op if no view is defined)
         apply_view(mode)
+
+    # ------------------------------------------------------------------
+    # Keyboard shortcuts
+    # ------------------------------------------------------------------
 
     def _register_keyboard_shortcuts(self) -> None:
         """Register global keyboard shortcuts on the main window."""
@@ -188,7 +198,6 @@ class MainWin:
         with dpg.menu(label="Workspace", tag=_ws_tag):
             dpg.add_menu_item(label="Select Working Dir.", callback=working_directory_manager.select_directory)
             dpg.add_separator()
-            dpg.add_menu_item(label="Export Pipeline", callback=self._on_save_workspace)
             dpg.add_menu_item(label="Load Pipeline", callback=self._on_load_workspace)
             dpg.add_menu_item(label="Pipeline Editor", callback=self._on_pipeline_editor)
             dpg.add_separator()
@@ -333,6 +342,14 @@ class MainWin:
         """Populate the Theme sub-menu with all auto-discovered palettes."""
         from config.theme_manager import PALETTES, theme_manager
         with dpg.menu(label="Theme"):
+            dpg.add_menu_item(label="\uf1fc  Theme Manager", callback=self._on_open_theme_manager)
+            dpg.add_menu_item(
+                label="\uf0eb  Enable Highlights",
+                check=True,
+                default_value=theme_manager.highlight_enabled,
+                callback=self._on_toggle_highlight,
+            )
+            dpg.add_separator()
             for theme_name in PALETTES.keys():
                 label = theme_name.title()
                 dpg.add_menu_item(
@@ -349,6 +366,19 @@ class MainWin:
                         callback=self._on_switch_colorblind,
                         user_data=mode,
                     )
+
+    def _on_toggle_highlight(self, sender=None, app_data=None, user_data=None, *args, **kwargs) -> None:
+        """Toggle widget highlighting globally and update config."""
+        from config.theme_manager import theme_manager
+
+        theme_manager.highlight_enabled = bool(app_data)
+        logger.info(f"Widget highlight {'enabled' if app_data else 'disabled'}")
+
+    def _on_open_theme_manager(self, sender=None, app_data=None, user_data=None, *args, **kwargs) -> None:
+        """Open the interactive Theme Manager window."""
+        from config.theme_manager_win import theme_manager_win
+
+        theme_manager_win.show()
 
     def _on_switch_theme(self, sender=None, app_data=None, user_data=None, *args, **kwargs) -> None:
         """Switch the active theme and persist the choice to config.json."""
@@ -399,7 +429,7 @@ class MainWin:
                 json.dump(config, f, indent=4)
         except Exception as e:
             logger.warning(f"Could not persist {key} to config.json: {e}")
-
+            
     def add_pinned_menu_item(self, label: str, show_callback) -> None:
         """
         Add an entry to the Pinned menu.
@@ -465,14 +495,8 @@ class MainWin:
         import json
         from core.paths import LAYOUTS_DIR
         
-        path = file_explorer.save_file(
-            default_path=str(LAYOUTS_DIR),
-            default_name="manual_layout.json",
-            extensions=[("JSON files", "*.json")]
-        )
+        path = file_explorer.save_file(default_path=str(LAYOUTS_DIR), default_name="manual_layout.json")
         if path:
-            if not path.lower().endswith(".json"):
-                path += ".json"
             node_positions = self.node_editor.get_node_positions()
             export_workspace(MODULES_REGISTRY, path, node_positions=node_positions)
 
@@ -485,11 +509,7 @@ class MainWin:
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=4)
 
-            logger.success(f"Pipeline saved to {path}")
-
-    def _on_export_pipeline(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
-        """Alias for _on_save_workspace."""
-        return self._on_save_workspace(sender, app_data, user_data, *args, **kwargs)
+            logger.success(f"Workspace saved to {path}")
 
     def _on_save_clipboard(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args) -> None:
         """
@@ -828,7 +848,7 @@ class MainWin:
         """
         # Calculate absolute path to layouts directory
         from core.paths import LAYOUTS_DIR
-        
+ 
         path = file_explorer.select_file(
             default_path=str(LAYOUTS_DIR), 
             extensions=[("JSON files", "*.json")]
@@ -931,6 +951,13 @@ class MainWin:
                     self.node_editor.delete_all_nodes()
                     load_from_dict(data)
                     self.node_editor.rebuild_from_instances(MODULES_REGISTRY)
+
+                    # Restore native link and gate nodes
+                    link_nodes = data.get("link_nodes", [])
+                    if link_nodes and hasattr(self.node_editor, "rebuild_link_nodes"):
+                        uuid_to_inst = {getattr(inst, 'UUID', None): inst for inst in MODULES_REGISTRY.values()}
+                        self.node_editor.rebuild_link_nodes(link_nodes, uuid_to_inst)
+
                     logger.success("Workspace loaded from clipboard data")
                     
                     dpg.delete_item(popup_id)

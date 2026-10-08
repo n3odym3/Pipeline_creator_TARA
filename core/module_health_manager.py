@@ -45,7 +45,7 @@ class ModuleHealthManager:
 
         Args:
             pump_frames: If True, blocks and manually pumps DPG frames until
-                        the window is closed (used at startup before main loop).
+                         the window is closed (used at startup before main loop).
         """
         try:
             from core.config_manager import config

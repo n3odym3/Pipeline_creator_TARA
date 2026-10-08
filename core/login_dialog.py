@@ -3,6 +3,24 @@ Login / Profile-selection dialog for Pipeline Creator.
 
 Shown at startup when config["Login"]["enabled"] is True.
 Can be re-triggered at any time via show_login_dialog() — main_win binds it to CTRL+SHIFT+L.
+
+Boot contract
+-------------
+    1. display_scaling.adapt_to_display() is called first so the popup
+       is sized correctly for the current screen.
+    2. The dialog pumps the DPG render loop internally until the user
+       confirms, then returns control.
+    3. app_state is updated (username, mode, login_done) before return.
+    4. The caller (main_win / main.py) is responsible for applying any
+       mode-dependent UI changes after this function returns.
+
+Usage
+-----
+    from core.login_dialog import show_login_dialog
+    # Blocking call (at boot)
+    show_login_dialog(default_mode="advanced", pump_frames=True)
+    # Async call (at runtime)
+    show_login_dialog(on_confirm=my_callback)
 """
 
 from __future__ import annotations
@@ -35,6 +53,13 @@ def show_login_dialog(
 ) -> None:
     """
     Display the login dialog.
+
+    Args:
+        default_mode: Mode pre-selected in the UI ("user"|"advanced"|"dev").
+        on_confirm: Optional callback called after the user confirms.
+        pump_frames: If True, this function blocks and manually pumps DPG
+                      frames until the window is closed. MUST be True at
+                      startup (before main loop) and False at runtime.
     """
     try:
         from config.display_scaling import display_scaling
@@ -111,7 +136,7 @@ def _build_dialog(default_mode: str, on_confirm_extra: Optional[Callable[[], Non
         dpg.add_separator()
         dpg.add_spacer(height=s(8))
 
-        def _on_name_change(sender: Any, app_data: str, user_data: Any) -> None:
+        def _on_name_change(sender: Any, app_data: str, user_data: Any, *args, **kwargs) -> None:
             if app_data.strip():
                 if dpg.does_item_exist("login_error_text"):
                     dpg.configure_item("login_error_text", show=False)

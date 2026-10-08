@@ -97,3 +97,10 @@ class _LinkInNode:
     def close(self) -> None:
         self._unsubscribe()
 
+
+# Re-export built-in proxies
+from core.node_gate import _GateNode
+from core.node_working_dir import _WorkingDirNode
+
+__all__ = ["_LinkOutNode", "_LinkInNode", "_GateNode", "_WorkingDirNode"]
+

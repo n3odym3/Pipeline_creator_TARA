@@ -47,7 +47,7 @@ class FusionManager:
         """
         self.winID: str = f"fusion_manager_{label}"
         self.table_id: str = f"{self.winID}_table"
-        self.tag_to_module: Dict[str, WindowBase] = {} 
+        self.tag_to_module: Dict[str, WindowBase] = {}  # Mapping from button tag to module instance
 
         # Reusable static themes to avoid leaking handles
         self.theme_refresh_btn: Union[int, str] = dpg.add_theme()
@@ -388,7 +388,7 @@ class FusionManager:
         sender: Optional[Union[int, str]] = None,
         app_data: Any = None,
         user_data: Any = None,
-    ) -> None:
+        *args, **kwargs) -> None:
         """Restore all merged modules back to standalone windows."""
         restored_count = 0
         for module in get_registered_modules():

@@ -6,7 +6,7 @@
         },
         {
             "action": "load_pipeline",
-            "path": "/layouts/polymager_TARA.json"
+            "path": "/pipelines/polymager_TARA.json"
         },
         {
             "action": "send_command",

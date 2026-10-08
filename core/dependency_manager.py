@@ -27,6 +27,10 @@ class DependencyManager:
     - Scan module directories for requirements.txt files
     - Check which packages are missing
     - Install packages individually or in bulk
+
+    Attributes:
+        missing_deps: Dict mapping module names to lists of missing packages.
+        install_in_progress: Flag to prevent concurrent installations.
     """
 
     # 5 minutes timeout for pip operations
@@ -43,6 +47,11 @@ class DependencyManager:
 
         Searches for requirements.txt files in the given path and checks
         whether each listed package is installed.
+
+        Args:
+            modules_path: Base path where modules are located.
+            clear_existing: If True, clears existing missing_deps before scanning.
+                           If False, merges with existing auto-detected dependencies.
         """
         if clear_existing:
             self.missing_deps.clear()
@@ -70,6 +79,12 @@ class DependencyManager:
     def _check_requirements(self, req_file: Path) -> List[str]:
         """
         Check a single requirements.txt file for missing packages.
+
+        Args:
+            req_file: Path to the requirements.txt file.
+
+        Returns:
+            List of missing package specifications.
         """
         missing: List[str] = []
 
@@ -126,12 +141,21 @@ class DependencyManager:
     def get_missing_deps(self) -> Dict[str, List[str]]:
         """
         Get current missing dependencies.
+
+        Returns:
+            Copy of the missing dependencies dictionary.
         """
         return self.missing_deps.copy()
 
     def install_package(self, package: str) -> bool:
         """
         Install a single package using pip.
+
+        Args:
+            package: Package name to install.
+
+        Returns:
+            True if installation was successful, False otherwise.
         """
         if self.install_in_progress:
             logger.warning("Installation already in progress")
@@ -168,6 +192,12 @@ class DependencyManager:
     def install_packages(self, packages: List[str]) -> Dict[str, bool]:
         """
         Install multiple packages using pip.
+
+        Args:
+            packages: List of package names to install.
+
+        Returns:
+            Dictionary mapping package names to success status.
         """
         if self.install_in_progress:
             logger.warning("Installation already in progress")

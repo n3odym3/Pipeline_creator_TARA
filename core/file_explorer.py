@@ -168,11 +168,6 @@ class FileExplorer:
 
             path = res or ""
 
-            # Ensure default extension is applied if specified in kwargs
-            defaultext = kwargs.get("defaultextension", "")
-            if path and defaultext and not path.lower().endswith(defaultext.lower()):
-                path += defaultext
-
             # Detect selected extension from filetypes filter
             selected_ext = ""
             if filetypes and callback:
@@ -257,32 +252,15 @@ class FileExplorer:
         Returns:
             str: The chosen file path (if synchronous) or empty string (if callback used).
         """
-        init_dir, init_file = self._prepare_path(default_path)
-        if default_name:
-            init_file = default_name
+        init_dir = str(Path(default_path)) if default_path else str(Path.cwd())
         filetypes = extensions if extensions else [("All files", "*.*")]
-
-        defaultext = ""
-        if extensions:
-            for desc, pattern in extensions:
-                if pattern != "*.*":
-                    defaultext = pattern.replace("*", "")
-                    break
-        if not defaultext and init_file and "." in init_file:
-            defaultext = Path(init_file).suffix
-
-        kwargs: dict[str, Any] = {
-            "initialdir": init_dir,
-            "initialfile": init_file,
-            "filetypes": filetypes,
-        }
-        if defaultext:
-            kwargs["defaultextension"] = defaultext
 
         return self._run_dialog(
             filedialog.asksaveasfilename,
             callback=callback,
-            **kwargs,
+            initialdir=init_dir,
+            initialfile=default_name,
+            filetypes=filetypes,
         )
 
     def select_folder(
@@ -303,7 +281,11 @@ class FileExplorer:
         init_dir = str(Path(default_path)) if default_path else str(Path.cwd())
         return self._run_dialog(filedialog.askdirectory, callback=callback, initialdir=init_dir)
 
+    # Alias for compatibility
+    select_directory = select_folder
+
 
 # Global singleton instance
 file_explorer: FileExplorer = FileExplorer()
+
 

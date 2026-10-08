@@ -172,9 +172,6 @@ class PipelineEditor:
             if not target:
                 return False
 
-        if not target.lower().endswith(".json"):
-            target += ".json"
-
         try:
             with open(target, "w", encoding="utf-8") as f:
                 json.dump(self.pipeline_data, f, indent=4)
@@ -184,6 +181,10 @@ class PipelineEditor:
         except Exception as e:
             logger.error(f"Failed to save pipeline to '{target}': {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # UI Construction
+    # ------------------------------------------------------------------
 
     def _build_ui(self, active_tab: Optional[str] = None) -> None:
         """Create or recreate the Pipeline Editor window."""
@@ -253,7 +254,7 @@ class PipelineEditor:
 
         dpg.bind_item_handler_registry(self.winID, win_handler_tag)
 
-    def _on_tab_changed(self, sender: Any, app_data: Any, user_data: Any = None) -> None:
+    def _on_tab_changed(self, sender: Any, app_data: Any, user_data: Any = None, *args, **kwargs) -> None:
         """Track active tab and auto-sync raw JSON text when switching to the Raw JSON tab."""
         self.active_tab = app_data
         if app_data == f"{self.winID}_tab_json":
@@ -339,6 +340,9 @@ class PipelineEditor:
                 width=s(80),
             )
 
+    # ------------------------------------------------------------------
+    # TAB 1: Overview
+    # ------------------------------------------------------------------
 
     def _build_overview_tab(self) -> None:
         """Overview metrics and summary of who connects to whom."""
@@ -402,6 +406,10 @@ class PipelineEditor:
                             dpg.add_text(", ".join(outgoing), color=(180, 255, 180))
                         else:
                             dpg.add_text("(No outgoing links)", color=(120, 120, 120))
+
+    # ------------------------------------------------------------------
+    # TAB 2: Modules & Windows
+    # ------------------------------------------------------------------
 
     def _build_modules_tab(self) -> None:
         """Module list on the left, module details & parameter editor on the right."""
@@ -719,6 +727,10 @@ class PipelineEditor:
         self._populate_module_list()
         self._populate_module_details()
 
+    # ------------------------------------------------------------------
+    # TAB 3: Connections ("Qui fait quoi")
+    # ------------------------------------------------------------------
+
     def _build_connections_tab(self) -> None:
         """Visual table of all inter-module connections and connection creator."""
         s = display_scaling.scale
@@ -954,6 +966,10 @@ class PipelineEditor:
                 self.selected_connection_idx -= 1
             self._populate_connections_table()
 
+    # ------------------------------------------------------------------
+    # TAB 4: Views
+    # ------------------------------------------------------------------
+
     def _build_views_tab(self) -> None:
         """View manager: listing views, interactive layout canvas, window layouts per view, add/delete."""
         s = display_scaling.scale
@@ -1118,6 +1134,45 @@ class PipelineEditor:
             # Draw initial canvas contents
             self._draw_view_canvas()
 
+            # Gates Configuration section for this View
+            gates = [
+                node for node in self.pipeline_data.get("link_nodes", [])
+                if node.get("kind") == "gate"
+            ]
+            if gates:
+                dpg.add_spacer(height=s(6))
+                with dpg.collapsing_header(label="Gates in this View", default_open=True):
+                    dpg.add_text(
+                        "Define whether each Gate is pass-through (active) when this view is applied:",
+                        color=(160, 170, 190),
+                    )
+                    v_gates = vdata.setdefault("gates", {})
+                    for gate in gates:
+                        g_uuid = gate.get("uuid", "")
+                        g_label = gate.get("label", "Gate")
+                        g_val = v_gates.get(g_uuid, gate.get("is_open", True))
+                        g_open = g_val.get("is_open", g_val) if isinstance(g_val, dict) else bool(g_val)
+
+                        def _on_gate_toggle(s_w, a_val, u_data, *args, **kwargs):
+                            uuid_k, lbl_k = u_data
+                            v_gates[uuid_k] = {"is_open": bool(a_val), "label": lbl_k}
+                            if getattr(self, "sync_live_workspace", False):
+                                try:
+                                    from core.main_win import main_win
+                                    if hasattr(main_win, "node_editor") and hasattr(main_win.node_editor, "set_gate_states"):
+                                        main_win.node_editor.set_gate_states({uuid_k: bool(a_val)})
+                                except Exception:
+                                    pass
+
+                        with dpg.group(horizontal=True):
+                            dpg.add_checkbox(
+                                label=f"{g_label} (Pass-through)",
+                                default_value=g_open,
+                                callback=_on_gate_toggle,
+                                user_data=(g_uuid, g_label),
+                            )
+                            dpg.add_text(f"[UUID: {g_uuid[:8]}...]", color=(120, 130, 145))
+
     def _update_canvas_dimensions(self) -> None:
         """Dynamically compute the optimal viewport canvas dimensions based on current window size."""
         s = display_scaling.scale
@@ -1146,7 +1201,7 @@ class PipelineEditor:
         self._canvas_w = int(max(s(360), cand_w))
         self._canvas_h = int(max(s(200), cand_h))
 
-    def _on_window_resized(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_window_resized(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Handle resizing of the Pipeline Editor window to adapt the view canvas in real time."""
         canvas_tag = f"{self.winID}_view_canvas"
         frame_tag = f"{self.winID}_canvas_frame"
@@ -1289,7 +1344,7 @@ class PipelineEditor:
 
         return -1, None
 
-    def _on_canvas_left_click(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_canvas_left_click(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Handle left mouse click on the view preview canvas."""
         mouse_pos = dpg.get_drawing_mouse_pos()
         mx, my = mouse_pos[0], mouse_pos[1]
@@ -1444,7 +1499,7 @@ class PipelineEditor:
 
         return cand_w, cand_h
 
-    def _on_canvas_active(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_canvas_active(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Handle mouse drag while left button is active on canvas."""
         if not dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
             self._canvas_drag["active"] = False
@@ -1631,7 +1686,7 @@ class PipelineEditor:
         except Exception as e:
             logger.debug(f"Could not live-sync real window geometry: {e}")
 
-    def _on_canvas_right_click(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_canvas_right_click(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Handle right click on the canvas: show context menu to add or remove windows at the exact cursor position."""
         drawing_mpos = dpg.get_drawing_mouse_pos()
         abs_mpos = list(dpg.get_mouse_pos(local=False))
@@ -1910,6 +1965,10 @@ class PipelineEditor:
             self.selected_view_win_idx = None
             self._populate_views_list()
             self._populate_view_details()
+
+    # ------------------------------------------------------------------
+    # TAB 5: Raw JSON
+    # ------------------------------------------------------------------
 
     def _build_json_tab(self) -> None:
         """Raw JSON editor tab with realtime sync and validation."""

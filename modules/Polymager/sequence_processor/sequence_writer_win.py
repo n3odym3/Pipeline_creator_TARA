@@ -192,7 +192,7 @@ class SequenceWriterWin(WindowBase):
 			callback=self._save_sequence_to_file
 		)
 
-	def _save_sequence_to_file(self, file_path: str, ext: str) -> None:
+	def _save_sequence_to_file(self, file_path: str, ext: str, *args, **kwargs) -> None:
 		if not file_path:
 			return
 		

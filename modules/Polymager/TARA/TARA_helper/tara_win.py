@@ -517,6 +517,17 @@ class TaraWin(WindowBase):
         if dpg.does_item_exist(self.winID):
             dpg.configure_item(self.winID, no_close=is_user)
 
+    def on_view_applied(self) -> None:
+        """
+        Callback invoked when a layout view is applied.
+        Ensures only the currently active step group is visible, permissions are enforced,
+        and internal popups remain hidden.
+        """
+        self._set_step(self.protocol_step)
+        self.update_permission()
+        if not getattr(self, "_find_exp_active", False) and dpg.does_item_exist(getattr(self, "_progress_popup_tag", "")):
+            dpg.configure_item(self._progress_popup_tag, show=False)
+
     def _get_tutorial_path(self, step_num: int | float) -> str:
         """Return the appropriate tutorial JSON path for a step.
 
@@ -1739,7 +1750,7 @@ class TaraWin(WindowBase):
         if received >= total:
             self._hide_progress()
 
-    def _on_key_delete(self, sender: Any, app_data: Any, user_data: Any = None) -> None:
+    def _on_key_delete(self, sender: Any, app_data: Any, user_data: Any = None, *args, **kwargs) -> None:
         """Allow manual frame skip in User Mode using DEL key when progress bar is active."""
         if self._find_exp_active:
             logger.info("Delete key pressed while waiting for frames. Manually injecting 1 frame.")

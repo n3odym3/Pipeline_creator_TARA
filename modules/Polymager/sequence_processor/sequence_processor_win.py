@@ -64,7 +64,7 @@ class SequenceProcessorWin(WindowBase):
 		self.connections = {k: [] for k in self.outputs}
 
 		self._persistent_fields = ["label"]
-		self.accepted_input_types = [IOTypes.CMD_LIST, IOTypes.FOLDER_PATH, IOTypes.TEXT, IOTypes.CMD_DICT]
+		self.accepted_input_types = [IOTypes.CMD_LIST, IOTypes.FOLDER_PATH, IOTypes.TEXT, IOTypes.CMD_DICT, IOTypes.TRIGGER]
 		
 		self.sequence_input_tag = f"seq_writer_input_{self.UUID}"
 		self.table_tag = f"seq_writer_table_{self.UUID}"
@@ -80,6 +80,7 @@ class SequenceProcessorWin(WindowBase):
 		self.initial_total_duration = 0
 		self.seq_running = False
 		self.seq_error = False
+		self._ready_event = threading.Event()
 		self.check_delay = 5 # Check every 5 seconds if the task is still running
 		self.current_folder = None
 		self.raw_sequence = ""
@@ -274,8 +275,48 @@ class SequenceProcessorWin(WindowBase):
 					else:
 						self.trigger_cb("CMD dict", cmd_response["cmd"])
 
-					duration = cmd_response["duration"]
-					if duration > 0:
+					wait_feedback = bool(cmd_response.get("wait_feedback", False))
+					duration = float(cmd_response.get("duration", 0.0))
+
+					if wait_feedback:
+						self._ready_event.clear()
+						start_wait = time.perf_counter()
+						# Timeout: wait until ready event OR auto-advance if duration + 2.0s grace period expires
+						max_wait = duration + 2.0 if duration > 0 else 3600.0
+
+						while not self._ready_event.is_set():
+							if not self.seq_running:
+								logger.info("Sequence aborted")
+								cleanup("KILLED")
+								return
+
+							time.sleep(0.05)
+							now = time.perf_counter()
+							elapsed = now - start_wait
+							if elapsed >= max_wait:
+								logger.info(f"Feedback wait elapsed for command '{cmd}' ({elapsed:.1f}s), auto-advancing.")
+								break
+
+							# Live update remaining time display while waiting
+							if duration > 0:
+								time_spent = min(elapsed, duration)
+								rem = max(0.0, self.total_duration - time_spent)
+								dpg.set_value(self.seq_remaining_tag, f"Remaining : {datetime.timedelta(seconds=int(rem))}")
+								if self.initial_total_duration > 0:
+									progress = max(0.0, min(1.0, 1.0 - (rem / self.initial_total_duration)))
+									dpg.set_value(self.seq_progress_bar_tag, progress)
+
+						if duration > 0:
+							self.total_duration -= duration
+							if self.total_duration < 0:
+								self.total_duration = 0
+
+						dpg.set_value(self.seq_remaining_tag, f"Remaining : {datetime.timedelta(seconds=int(self.total_duration))}")
+						if self.initial_total_duration > 0:
+							progress = max(0.0, min(1.0, 1.0 - (self.total_duration / self.initial_total_duration)))
+							dpg.set_value(self.seq_progress_bar_tag, progress)
+
+					elif duration > 0:
 						remaining_time = duration
 						while remaining_time > 0:
 							sleep_time = min(1, remaining_time)
@@ -371,8 +412,8 @@ class SequenceProcessorWin(WindowBase):
 						with open(json_path, 'w') as f:
 							json.dump({
 								"sequence": self.raw_sequence,
-								"user": app_state.username,
-								"detector": app_state.detector
+								"user": app_state.get("username", ""),
+								"detector": app_state.get("detector", None)
 							}, f, indent=4)
 						logger.info(f"Sequence saved to {json_path}")
 					except Exception as e:
@@ -434,7 +475,17 @@ class SequenceProcessorWin(WindowBase):
 		data_type = kwargs.get("data_type")
 		data_content = kwargs.get("data") if "data" in kwargs else data
 
+		# 1. Handle READY / Trigger feedback signals from downstream modules
+		if data_type == IOTypes.TRIGGER or (isinstance(data_content, str) and data_content.upper() in ["READY", "RECORD_STOP", "DONE", "STOP", "FINISHED"]):
+			logger.info(f"Sequence Processor {self.UUID} received feedback trigger: '{data_content}'")
+			self._ready_event.set()
+			return
+
 		if data_type == IOTypes.CMD_DICT or isinstance(data_content, dict):
+			if isinstance(data_content, dict) and (data_content.get("ready") or data_content.get("done") or data_content.get("finished")):
+				logger.info(f"Sequence Processor {self.UUID} received feedback dict: {data_content}")
+				self._ready_event.set()
+				return
 			if data_content.get("start_sequence"):
 				self.run_sequence()
 			if data_content.get("clear", False):

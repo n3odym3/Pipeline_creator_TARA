@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Set, Union
 from loguru import logger
 
+
+
 def extract_imports(file_path: Union[str, Path], exclude_local: bool = True) -> Set[str]:
     """
     Extract all imported top-level module names from a Python file using AST.
@@ -64,6 +66,13 @@ def extract_imports(file_path: Union[str, Path], exclude_local: bool = True) -> 
 def _is_local_module(file_path: Path, module_name: str) -> bool:
     """
     Check if a module name corresponds to a local file or directory relative to the file.
+
+    Args:
+        file_path: Path to the Python file being analyzed.
+        module_name: Name of the module to check.
+
+    Returns:
+        True if the module is a local directory or Python file.
     """
     base_dir = file_path.parent
     local_dir_path = base_dir / module_name

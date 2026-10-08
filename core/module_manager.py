@@ -60,6 +60,9 @@ class ModuleManager:
         self.uninstall_headers_info: List[Any] = []
         self.mu_button_ids: Dict[str, Any] = {}
 
+
+    # ── Installation UI ───────────────────────────────────────────────────────
+
     def show_install(self) -> None:
         """Create or recreate the module installer window."""
         if dpg.does_item_exist(self.winID):
@@ -187,7 +190,7 @@ class ModuleManager:
                     continue
         return sorted(list(set(subdirs)))
 
-    def _on_browse(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_browse(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Browse button callback."""
         selected = file_explorer.select_folder(default_path=self.src_path or str(Path.cwd()))
         if not selected:
@@ -262,18 +265,18 @@ class ModuleManager:
                 msg += " " + " | ".join(errors[:2])
             return False, msg, []
 
-    def _on_standalone_change(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_standalone_change(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Standalone checkbox callback."""
         self.standalone = dpg.get_value("mi_standalone")
         dpg.configure_item("mi_hierarchy_group", show=not self.standalone)
         self._update_install_preview()
 
-    def _on_parent_change(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_parent_change(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Parent combo box callback."""
         self.parent_dir = dpg.get_value("mi_parent_dir")
         self._update_install_preview()
 
-    def _on_custom_change(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_custom_change(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Custom subfolder path callback."""
         self.custom_sub = dpg.get_value("mi_custom_sub")
         self._update_install_preview()
@@ -306,7 +309,7 @@ class ModuleManager:
         dpg.set_value("mi_dest_preview", preview_str)
         dpg.configure_item("mi_install_btn", enabled=self.is_valid)
 
-    def _on_install(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_install(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Install button callback."""
         if not self.src_path or not self.is_valid:
             return
@@ -380,7 +383,7 @@ class ModuleManager:
                     callback=lambda: dpg.delete_item(modal_tag) if dpg.does_item_exist(modal_tag) else None,
                 )
 
-    def _on_overwrite_confirmed(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_overwrite_confirmed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Callback when overwrite is confirmed."""
         modal_tag = "mi_overwrite_confirm_modal"
         if dpg.does_item_exist(modal_tag):
@@ -456,6 +459,8 @@ class ModuleManager:
                 width=s(80),
                 callback=lambda: dpg.delete_item(modal_tag) if dpg.does_item_exist(modal_tag) else None,
             )
+
+    # ── Uninstallation UI ─────────────────────────────────────────────────────
 
     def show_uninstall(self) -> None:
         """Create or recreate the module uninstaller window."""
@@ -682,7 +687,7 @@ class ModuleManager:
         else:
             return parent
 
-    def _on_uninstall_search_change(self, sender: Any = None, app_data: str = "", user_data: Any = None) -> None:
+    def _on_uninstall_search_change(self, sender: Any = None, app_data: str = "", user_data: Any = None, *args, **kwargs) -> None:
         """Filters the hierarchy of collapsing headers and buttons based on search query."""
         filter_lower = app_data.lower().strip()
         from core.search_utils import fuzzy_score
@@ -714,7 +719,7 @@ class ModuleManager:
                 else:
                     dpg.hide_item(btn_id)
 
-    def _on_uninstall_select_button(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_uninstall_select_button(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Callback when a module button is clicked in the uninstaller list."""
         key = user_data
         if not key or key not in self.uninstall_modules_data:
@@ -745,7 +750,7 @@ class ModuleManager:
         dpg.set_value("mu_detail_target", rel_display)
         dpg.configure_item("mu_uninstall_btn", enabled=True)
 
-    def _on_uninstall_click(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_uninstall_click(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Uninstall button callback - shows confirmation dialog."""
         if not self.selected_uninstall_key or not self.selected_uninstall_target:
             return
@@ -798,7 +803,7 @@ class ModuleManager:
                     callback=lambda: dpg.delete_item(modal_tag) if dpg.does_item_exist(modal_tag) else None,
                 )
 
-    def _on_uninstall_confirmed(self, sender: Any = None, app_data: Any = None, user_data: Any = None) -> None:
+    def _on_uninstall_confirmed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
         """Callback when uninstallation is confirmed."""
         modal_tag = "mu_confirm_modal"
         if dpg.does_item_exist(modal_tag):
@@ -949,6 +954,8 @@ class ModuleManager:
                 width=s(80),
                 callback=lambda: dpg.delete_item(modal_tag) if dpg.does_item_exist(modal_tag) else None,
             )
+
+    # ── Utilities ─────────────────────────────────────────────────────────────
 
     def _refresh_node_editor(self) -> None:
         """Tells the Node Editor to rebuild its registries and lists."""

@@ -198,7 +198,7 @@ class SamInteractiveWin(WindowBase):
         
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-    def _on_proc_settings_change(self):
+    def _on_proc_settings_change(self, *args, **kwargs):
         with self._lock:
             self._process_enabled = dpg.get_value(self._tag_proc_enable)
             self._saturation = dpg.get_value(self._tag_proc_sat)

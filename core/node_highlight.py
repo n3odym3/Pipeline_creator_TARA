@@ -305,16 +305,17 @@ class NodeHighlightMixin:
                         break
 
             for link_id, (from_attr, to_attr) in self.link_map.items():
-                if not dpg.does_item_exist(to_attr):
+                if not dpg.does_item_exist(to_attr) or not dpg.does_item_exist(from_attr):
                     continue
-                if dpg.get_item_parent(from_attr) != start_node_id:
+                p_from = dpg.get_item_parent(from_attr)
+                if p_from != start_node_id and str(p_from) != str(start_node_id):
                     continue
                 if self._find_output_key(start_node_id, from_attr) != out_key:
                     continue
                 colored_links[link_id] = out_idx
                 target = dpg.get_item_parent(to_attr)
                 target_inst = self.node_map.get(target)
-                next_depth = 0 if getattr(target_inst, "KIND", "") in ("link_in", "link_out") else 1
+                next_depth = 0 if getattr(target_inst, "KIND", "") in ("link_in", "link_out", "gate") else 1
                 if target not in visited:
                     visited.add(target)
                     colored_nodes[target] = out_idx
@@ -323,6 +324,10 @@ class NodeHighlightMixin:
         while to_process:
             current, out_idx, depth = to_process.pop(0)
             curr_inst = self.node_map.get(current)
+
+            # If node is a closed gate, data does not flow through it
+            if getattr(curr_inst, "KIND", "") == "gate" and not getattr(curr_inst, "is_open", True):
+                continue
 
             if getattr(curr_inst, "KIND", "") == "link_out":
                 link_name = curr_inst._get_live_name()
@@ -336,19 +341,26 @@ class NodeHighlightMixin:
                                 colored_nodes[node_id] = out_idx
                                 to_process.append((node_id, out_idx, depth))
 
-            if max_depth != -1 and depth >= max_depth:
+            # A Gate acts like a transparent wire: it forwards its color directly to all downstream
+            # nodes connected to its output without consuming a depth hop.
+            is_gate = getattr(curr_inst, "KIND", "") == "gate"
+            if not is_gate and max_depth != -1 and depth >= max_depth:
                 continue
 
             for link_id, (from_attr, to_attr) in self.link_map.items():
-                if dpg.get_item_parent(from_attr) == current and dpg.does_item_exist(to_attr):
-                    colored_links[link_id] = out_idx
-                    target = dpg.get_item_parent(to_attr)
-                    target_inst = self.node_map.get(target)
-                    next_depth = depth if getattr(target_inst, "KIND", "") in ("link_out", "link_in") else depth + 1
-                    if target not in visited:
-                        visited.add(target)
-                        colored_nodes[target] = out_idx
-                        to_process.append((target, out_idx, next_depth))
+                if not dpg.does_item_exist(from_attr) or not dpg.does_item_exist(to_attr):
+                    continue
+                p_from = dpg.get_item_parent(from_attr)
+                if p_from != current and str(p_from) != str(current):
+                    continue
+                colored_links[link_id] = out_idx
+                target = dpg.get_item_parent(to_attr)
+                target_inst = self.node_map.get(target)
+                next_depth = depth if getattr(target_inst, "KIND", "") in ("link_out", "link_in", "gate") else depth + 1
+                if target not in visited:
+                    visited.add(target)
+                    colored_nodes[target] = out_idx
+                    to_process.append((target, out_idx, next_depth))
 
         self._apply_node_style(start_node_id, self.red_node_theme)
         if start_node_id not in self._highlighted_nodes:
@@ -397,16 +409,17 @@ class NodeHighlightMixin:
                         break
 
             for link_id, (from_attr, to_attr) in self.link_map.items():
-                if not dpg.does_item_exist(to_attr):
+                if not dpg.does_item_exist(to_attr) or not dpg.does_item_exist(from_attr):
                     continue
-                if dpg.get_item_parent(from_attr) != start_node_id:
+                p_from = dpg.get_item_parent(from_attr)
+                if p_from != start_node_id and str(p_from) != str(start_node_id):
                     continue
                 if self._find_output_key(start_node_id, from_attr) != out_key:
                     continue
                 colored_links[link_id] = out_idx
                 target = dpg.get_item_parent(to_attr)
                 target_inst = self.node_map.get(target)
-                next_depth = 0 if getattr(target_inst, "KIND", "") in ("link_out", "link_in") else 1
+                next_depth = 0 if getattr(target_inst, "KIND", "") in ("link_out", "link_in", "gate") else 1
                 if target not in visited:
                     visited.add(target)
                     colored_nodes[target] = out_idx
@@ -415,6 +428,10 @@ class NodeHighlightMixin:
         while to_process:
             current, out_idx, depth = to_process.pop(0)
             curr_inst = self.node_map.get(current)
+
+            # If node is a closed gate, data does not flow through it
+            if getattr(curr_inst, "KIND", "") == "gate" and not getattr(curr_inst, "is_open", True):
+                continue
 
             if getattr(curr_inst, "KIND", "") == "link_out":
                 link_name = curr_inst._get_live_name()
@@ -427,19 +444,26 @@ class NodeHighlightMixin:
                                 colored_nodes[node_id] = out_idx
                                 to_process.append((node_id, out_idx, depth))
 
-            if max_depth != -1 and depth >= max_depth:
+            # A Gate acts like a transparent wire: it forwards its color directly to all downstream
+            # nodes connected to its output without consuming a depth hop.
+            is_gate = getattr(curr_inst, "KIND", "") == "gate"
+            if not is_gate and max_depth != -1 and depth >= max_depth:
                 continue
 
             for link_id, (from_attr, to_attr) in self.link_map.items():
-                if dpg.get_item_parent(from_attr) == current and dpg.does_item_exist(to_attr):
-                    colored_links[link_id] = out_idx
-                    target = dpg.get_item_parent(to_attr)
-                    target_inst = self.node_map.get(target)
-                    next_depth = depth if getattr(target_inst, "KIND", "") in ("link_out", "link_in") else depth + 1
-                    if target not in visited:
-                        visited.add(target)
-                        colored_nodes[target] = out_idx
-                        to_process.append((target, out_idx, next_depth))
+                if not dpg.does_item_exist(from_attr) or not dpg.does_item_exist(to_attr):
+                    continue
+                p_from = dpg.get_item_parent(from_attr)
+                if p_from != current and str(p_from) != str(current):
+                    continue
+                colored_links[link_id] = out_idx
+                target = dpg.get_item_parent(to_attr)
+                target_inst = self.node_map.get(target)
+                next_depth = depth if getattr(target_inst, "KIND", "") in ("link_out", "link_in", "gate") else depth + 1
+                if target not in visited:
+                    visited.add(target)
+                    colored_nodes[target] = out_idx
+                    to_process.append((target, out_idx, next_depth))
 
         for n_id, idx in colored_nodes.items():
             node_theme, _, _ = self._get_output_color_theme(idx)

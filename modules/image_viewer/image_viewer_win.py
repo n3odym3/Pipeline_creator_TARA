@@ -38,14 +38,15 @@ class Image_viewer_win(WindowBase):
 				image_depth="12bit",
                 show_scale=True,
                 categories_count=5,
-                use_rgba=False,
+                use_rgba=True,
+                zero_as_alpha=False,
                 export_path=None,
                 **kwargs):
 
-		self.use_rgba = use_rgba
-
 		super().__init__(label=label, pos=pos, win_width=win_width, win_height=win_height,
 			uuid=uuid, outputs=outputs or [], visible=visible, **kwargs)
+
+		self.use_rgba = True
 
 		# FPS tracking - separate input and display
 		# FPS tracking
@@ -74,6 +75,7 @@ class Image_viewer_win(WindowBase):
 
 		# DPG element tags
 		self.texture_tag = f"viewer_texture_{self.UUID}"
+		self.checkerboard_texture_tag = f"viewer_checker_{self.UUID}"
 		self.plot_tag = f"viewer_plot_{self.UUID}"
 		self.fps_tag = f"viewer_fps_{self.UUID}"
 		self.name_tag = f"viewer_name_{self.UUID}"
@@ -85,6 +87,9 @@ class Image_viewer_win(WindowBase):
 		self.sup_tag = f"viewer_sup_{self.UUID}"
 		self.texture_reg_tag = f"viewer_tex_reg_{self.UUID}"
 		self.rgba_checkbox_tag = f"viewer_rgba_{self.UUID}"
+		self.crop_limit_tag = f"viewer_crop_limit_{self.UUID}"
+		self.zero_as_alpha_tag = f"viewer_zero_alpha_{self.UUID}"
+		self.zero_as_alpha = kwargs.get("zero_as_alpha", zero_as_alpha)
 		dpg.add_texture_registry(tag=self.texture_reg_tag, show=False)
 
 		# ROI tags
@@ -137,7 +142,7 @@ class Image_viewer_win(WindowBase):
 		# Persistence and IO setup
 		self._persistent_fields = [
 			"label", "colorize", "intensity_rescaling",
-			"fps_counter", "image_export", "image_depth", "show_scale", "export_path", "categories_count", "use_rgba"
+			"fps_counter", "image_export", "image_depth", "show_scale", "export_path", "categories_count", "use_rgba", "zero_as_alpha"
 		]
 		self.accepted_input_types = [
 			IOTypes.FRAME, IOTypes.FILE_PATH, IOTypes.FRAME12, IOTypes.FRAME16,
@@ -230,8 +235,6 @@ class Image_viewer_win(WindowBase):
 						dpg.add_text("| FPS:")
 						dpg.add_text("0", tag=self.fps_tag)
 
-				dpg.add_checkbox(label="RGBA", default_value=self.use_rgba, tag=self.rgba_checkbox_tag, callback=self._on_toggle_rgba)
-
 			dpg.add_separator()
 			with dpg.group(horizontal=True):
 				dpg.add_checkbox(label="Enable ROI", default_value=True, tag=self.roi_enable_tag, callback=self.update_image_callback)
@@ -262,10 +265,18 @@ class Image_viewer_win(WindowBase):
 						initial_tip = f"Saves to: {self.export_path}" if self.export_path else "Saves to default folder"
 						dpg.add_text(initial_tip, tag=self.save_tooltip_text_tag)
 
+					dpg.add_checkbox(label="Crop limit", default_value=False, tag=self.crop_limit_tag, callback=self.update_image_callback)
+					with dpg.tooltip(parent=self.crop_limit_tag):
+						dpg.add_text("Crops viewer and exports to the minimal bounding box where alpha > 0")
+
+					dpg.add_checkbox(label="Zero as alpha", default_value=self.zero_as_alpha, tag=self.zero_as_alpha_tag, callback=self.update_image_callback)
+					with dpg.tooltip(parent=self.zero_as_alpha_tag):
+						dpg.add_text("Sets alpha to 0 for all zero-value pixels to generate an RGBA image with transparent background")
+
 			# Category mapping group
 			with dpg.group(horizontal=True, tag=self.cat_group_tag):
 				dpg.add_text("Categories:")
-				dpg.add_input_int(default_value=self.categories_count, min_value=2, max_value=20, step=1, width=80, tag=self.cat_count_tag, callback=self._update_categories_count)
+				dpg.add_input_int(default_value=self.categories_count, min_value=2, max_value=20, step=1, width=150, tag=self.cat_count_tag, callback=self._update_categories_count)
 				dpg.add_button(label="Send Palette", tag=self.btn_send_palette_tag, callback=self.send_palette_to_clipboard)
 				dpg.add_button(label="Send Result", tag=self.btn_send_result_tag, callback=self.send_result_to_clipboard)
 			
@@ -359,14 +370,29 @@ class Image_viewer_win(WindowBase):
 		self.update_image_callback()
 
 	def input_cb(self, *args, **kwargs):
-		"""Receives and processes image input from args or kwargs (supports ndarray or filepath)."""
-		# Handle ROI Input
-		if "data_type" in kwargs and kwargs["data_type"] == IOTypes.ROI_SAMPLE:
+		"""
+		Node editor input callback.
+		Accepts:
+		  - ROI_SAMPLE (sample dict)
+		  - CMD_DICT (commands: reset_counter, clear, etc.)
+		  - FOLDER_PATH (export path)
+		  - FRAME_MASK_PAIR (tuple/list of [frame, mask])
+		  - MASK (np.ndarray mask)
+		  - (frame, name) tuple
+		  - dict with "frame" and optional "mask"
+		  - file path string
+		  - raw ndarray frame (Grayscale, RGB, RGBA)
+		"""
+		# 1. Handle ROI Input
+		if kwargs.get("data_type") == IOTypes.ROI_SAMPLE or (
+			isinstance(kwargs.get("sample"), dict) and "rect" in kwargs["sample"]
+		):
 			self._handle_roi_input(kwargs["sample"])
 			return
 
-		if "data_type" in kwargs and kwargs["data_type"] == IOTypes.CMD_DICT:
-			cmd = kwargs.get("data") if kwargs.get("data") is not None else kwargs.get("sample") # Fallback to sample if used by sender
+		# 2. Handle CMD_DICT
+		if kwargs.get("data_type") == IOTypes.CMD_DICT:
+			cmd = kwargs.get("data") if kwargs.get("data") is not None else kwargs.get("sample")
 			if isinstance(cmd, dict):
 				if cmd.get("reset_counter"):
 					self.roi_index_counter = 1
@@ -374,7 +400,7 @@ class Image_viewer_win(WindowBase):
 					self._handle_roi_input({"clear": True})
 			return
 
-		# Handle FOLDER_PATH input (either via explicit data_type or if the data/args[0] is a directory string)
+		# 3. Handle FOLDER_PATH
 		data_type = kwargs.get("data_type")
 		path_val = kwargs.get("path")
 		if path_val is None:
@@ -389,19 +415,116 @@ class Image_viewer_win(WindowBase):
 				self.update_save_tooltip()
 				return
 
-		frame = kwargs["data"] if "data" in kwargs else (args[0] if args else None) #Numpy compatible evaluation
+		data = kwargs.get("data") if "data" in kwargs else (args[0] if args else None)
+		if data is None and "sample" in kwargs:
+			data = kwargs["sample"]
+		if data is None and "frame" in kwargs:
+			data = kwargs["frame"]
 
-		# Handle tuple input (frame, name)
-		if isinstance(frame, (tuple, list)) and len(frame) >= 1:
-			if isinstance(frame[0], np.ndarray):
-				frame = frame[0]
-				# We could also use frame[1] as name if needed, but Viewer doesn't use it yet (except maybe for saving?)
+		if data is None:
+			return
 
-		if isinstance(frame, str) and os.path.exists(frame) and not os.path.isdir(frame):
-			frame = cv2.imread(frame, cv2.IMREAD_UNCHANGED)
+		# 4. Check for FRAME_MASK_PAIR: (frame, mask)
+		is_frame_mask_pair = (
+			data_type == IOTypes.FRAME_MASK_PAIR
+			or (isinstance(data, (tuple, list)) and len(data) == 2 
+				and isinstance(data[0], np.ndarray) and isinstance(data[1], np.ndarray))
+		)
 
-		if isinstance(frame, np.ndarray):
+		if is_frame_mask_pair:
+			raw_frame, mask = data[0], data[1]
+			h, w = raw_frame.shape[:2]
+
+			# Convert mask to 8-bit alpha channel (0 to 255)
+			if mask.dtype == bool:
+				alpha = np.where(mask, 255, 0).astype(np.uint8)
+			elif mask.max() <= 1 and np.issubdtype(mask.dtype, np.number):
+				alpha = (mask * 255).astype(np.uint8)
+			else:
+				alpha = np.clip(mask, 0, 255).astype(np.uint8)
+
+			if alpha.shape[:2] != (h, w):
+				alpha = cv2.resize(alpha, (w, h), interpolation=cv2.INTER_NEAREST)
+
+			# Ensure base frame is 8-bit color
+			if raw_frame.dtype != np.uint8:
+				base = self.convert_to_lowdepth(raw_frame)
+			else:
+				base = raw_frame
+
+			if base.ndim == 2 or (base.ndim == 3 and base.shape[2] == 1):
+				bgr = cv2.cvtColor(base, cv2.COLOR_GRAY2BGR)
+			elif base.shape[2] == 4:
+				bgr = base[:, :, :3]
+			else:
+				bgr = base
+
+			frame = cv2.merge([bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2], alpha])
 			self.update_image(frame)
+			return
+
+		# 5. Dict with "frame" and optional "mask"
+		if isinstance(data, dict) and "frame" in data:
+			raw_frame = data["frame"]
+			if "mask" in data and data["mask"] is not None and isinstance(data["mask"], np.ndarray):
+				mask = data["mask"]
+				h, w = raw_frame.shape[:2]
+				if mask.dtype == bool:
+					alpha = np.where(mask, 255, 0).astype(np.uint8)
+				elif mask.max() <= 1 and np.issubdtype(mask.dtype, np.number):
+					alpha = (mask * 255).astype(np.uint8)
+				else:
+					alpha = np.clip(mask, 0, 255).astype(np.uint8)
+
+				if alpha.shape[:2] != (h, w):
+					alpha = cv2.resize(alpha, (w, h), interpolation=cv2.INTER_NEAREST)
+
+				if raw_frame.dtype != np.uint8:
+					base = self.convert_to_lowdepth(raw_frame)
+				else:
+					base = raw_frame
+
+				if base.ndim == 2 or (base.ndim == 3 and base.shape[2] == 1):
+					bgr = cv2.cvtColor(base, cv2.COLOR_GRAY2BGR)
+				elif base.shape[2] == 4:
+					bgr = base[:, :, :3]
+				else:
+					bgr = base
+
+				frame = cv2.merge([bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2], alpha])
+				self.update_image(frame)
+				return
+			else:
+				data = raw_frame
+
+		# 6. Single mask input
+		if data_type == IOTypes.MASK and isinstance(data, np.ndarray):
+			mask = data
+			if mask.dtype == bool:
+				alpha = np.where(mask, 255, 0).astype(np.uint8)
+			elif mask.max() <= 1 and np.issubdtype(mask.dtype, np.number):
+				alpha = (mask * 255).astype(np.uint8)
+			else:
+				alpha = np.clip(mask, 0, 255).astype(np.uint8)
+			frame = cv2.merge([alpha, alpha, alpha, alpha])
+			self.update_image(frame)
+			return
+
+		# 7. Tuple input (frame, name)
+		if isinstance(data, (tuple, list)) and len(data) >= 1 and isinstance(data[0], np.ndarray):
+			data = data[0]
+
+		# 8. Filepath string
+		if isinstance(data, str) and os.path.exists(data) and not os.path.isdir(data):
+			img = cv2.imread(data, cv2.IMREAD_UNCHANGED)
+			if img is not None:
+				self.update_image(img)
+				return
+
+		# 9. Raw ndarray frame
+		if isinstance(data, np.ndarray):
+			self.update_image(data)
+			return
 
 	def convert_to_lowdepth(self, frame: np.ndarray) -> np.ndarray:
 		"""Converts high bit-depth image to 8-bit based on image_depth."""
@@ -464,41 +587,93 @@ class Image_viewer_win(WindowBase):
 			return minval, maxval
 
 	def remap_pixel_intensity(self, frame: np.ndarray, low: float, high: float) -> np.ndarray:
-		"""Normalizes frame between [low, high] and scales to 8-bit using fast OpenCV scaling."""
-		if int(low) == 0 and int(high) == 255 and frame.dtype == np.uint8:
+		"""
+		Normalizes frame between [low, high] and scales to 8-bit uint8.
+		Pixels <= low are clamped to 0 (black/cleared).
+		Pixels >= high are clamped to 255 (saturated/white).
+		Pixels between low and high are scaled linearly.
+		"""
+		low_f = float(low)
+		high_f = float(high)
+
+		# Fast path: full dynamic range on uint8
+		if int(low_f) <= 0 and int(high_f) >= 255 and frame.dtype == np.uint8:
 			return frame
 
-		diff = high - low
-		if diff <= 0: diff = 1.0
-		
-		# cv2.convertScaleAbs scales and clips to uint8 in a single SIMD-accelerated C++ pass
-		alpha = 255.0 / diff
-		beta = -low * alpha
-		return cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
+		if frame.dtype == np.uint8:
+			low_i = max(0, min(255, int(round(low_f))))
+			high_i = max(0, min(255, int(round(high_f))))
+
+			lut = np.zeros(256, dtype=np.uint8)
+			if high_i > low_i:
+				lut[high_i:] = 255
+				ramp = np.linspace(0, 255, high_i - low_i + 1, endpoint=True)
+				lut[low_i:high_i + 1] = np.clip(np.round(ramp), 0, 255).astype(np.uint8)
+			else:
+				lut[high_i:] = 255
+
+			if not frame.flags.c_contiguous:
+				frame = np.ascontiguousarray(frame)
+			return cv2.LUT(frame, lut)
+		else:
+			diff = high_f - low_f
+			if diff <= 0:
+				diff = 1.0
+			clipped = np.clip(frame, low_f, high_f)
+			scaled = (clipped.astype(np.float32) - low_f) * (255.0 / diff)
+			return np.clip(scaled, 0, 255).astype(np.uint8)
 
 	def add_intensity_scale(self, img: np.ndarray, scale_width=30, position='left') -> np.ndarray:
 		"""Adds vertical or horizontal intensity scale bar to image."""
 		h = img.shape[0]
+		scale_w = min(scale_width, img.shape[1])
+		if scale_w <= 0:
+			return img
+
 		gradient = np.linspace(255, 0, h).reshape((h, 1)).astype(np.uint8)
-		scale = np.tile(gradient, (1, scale_width))
+		scale = np.tile(gradient, (1, scale_w))
 		
 		if img.ndim == 3:
-			# Broadcast scale to matching number of channels
-			scale_multichannel = np.stack([scale] * img.shape[2], axis=-1)
-			# For RGBA, keep alpha at 255 for the scale bar
 			if img.shape[2] == 4:
-				scale_multichannel[:, :, 3] = 255
-			scale = scale_multichannel
+				scale_color = self.colorize_frame(scale)
+				if scale_color.ndim == 2:
+					scale_color = cv2.cvtColor(scale_color, cv2.COLOR_GRAY2BGR)
+				alpha_chan = np.full((h, scale_w, 1), 255, dtype=np.uint8)
+				scale = np.concatenate([scale_color[:, :, :3], alpha_chan], axis=-1)
+			else:
+				scale_color = self.colorize_frame(scale)
+				if scale_color.ndim == 2 and img.shape[2] == 3:
+					scale_color = cv2.cvtColor(scale_color, cv2.COLOR_GRAY2BGR)
+				scale = scale_color
+		else:
+			scale = scale
 
 		overlay = img.copy()
 
 		match position:
-			case 'right': overlay[:, -scale_width:] = scale
-			case 'left': overlay[:, :scale_width] = scale
-			case 'top': overlay[:scale_width, :] = scale.T
-			case 'bottom': overlay[-scale_width:, :] = scale.T
+			case 'right': overlay[:, -scale_w:] = scale
+			case 'left': overlay[:, :scale_w] = scale
+			case 'top': overlay[:scale_w, :] = scale.T
+			case 'bottom': overlay[-scale_w:, :] = scale.T
 
 		return overlay
+
+	def add_scale_and_annotations(self, img: np.ndarray, min_val=None, max_val=None) -> np.ndarray:
+		"""Adds scale bar and min/max text to image (supports 2D, BGR, and RGBA)."""
+		if img is None or img.size == 0:
+			return img
+
+		if min_val is None or max_val is None:
+			min_val, max_val = self.get_minmax_values(img)
+
+		img = self.add_intensity_scale(img)
+
+		h = img.shape[0]
+		text_color = (255, 0, 0, 255) if (img.ndim == 3 and img.shape[2] == 4) else (255, 0, 0)
+		
+		cv2.putText(img, f"{max_val:.0f}", (35, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2)
+		cv2.putText(img, f"{min_val:.0f}", (35, max(30, h - 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2)
+		return img
 
 	def calc_fps(self) -> float:
 		"""Computes FPS (how fast frames arrive/render)."""
@@ -509,8 +684,80 @@ class Image_viewer_win(WindowBase):
 			self.fps_last = self.fps_now
 		return self.fps
 
+	def is_crop_limit_enabled(self) -> bool:
+		"""Returns True if 'Crop limit' checkbox is checked."""
+		if hasattr(self, 'crop_limit_tag') and dpg.does_item_exist(self.crop_limit_tag):
+			return bool(dpg.get_value(self.crop_limit_tag))
+		return False
+
+	def is_zero_as_alpha_enabled(self) -> bool:
+		"""Returns True if 'Zero as alpha' checkbox is checked."""
+		if hasattr(self, 'zero_as_alpha_tag') and dpg.does_item_exist(self.zero_as_alpha_tag):
+			return bool(dpg.get_value(self.zero_as_alpha_tag))
+		return getattr(self, "zero_as_alpha", False)
+
+	def apply_zero_as_alpha(self, raw_frame: np.ndarray, processed_frame: np.ndarray) -> np.ndarray:
+		"""
+		If 'Zero as alpha' is enabled, creates an RGBA/BGRA image where any pixel that was 0 in raw_frame
+		has alpha set to 0 (fully transparent), and all other pixels have alpha set to 255.
+		"""
+		if not self.is_zero_as_alpha_enabled() or raw_frame is None or processed_frame is None:
+			return processed_frame
+
+		# Compute mask of zero-value pixels from raw_frame
+		if raw_frame.ndim == 2 or (raw_frame.ndim == 3 and raw_frame.shape[2] == 1):
+			zero_mask = (raw_frame == 0)
+			if zero_mask.ndim == 3:
+				zero_mask = zero_mask[:, :, 0]
+		elif raw_frame.ndim == 3 and raw_frame.shape[2] == 3:
+			zero_mask = (raw_frame[:, :, 0] == 0) & (raw_frame[:, :, 1] == 0) & (raw_frame[:, :, 2] == 0)
+		elif raw_frame.ndim == 3 and raw_frame.shape[2] == 4:
+			zero_mask = (raw_frame[:, :, 3] == 0) | (
+				(raw_frame[:, :, 0] == 0) & (raw_frame[:, :, 1] == 0) & (raw_frame[:, :, 2] == 0)
+			)
+		else:
+			zero_mask = (raw_frame == 0)
+
+		# Ensure zero_mask matches spatial dimensions of processed_frame
+		h, w = processed_frame.shape[:2]
+		if zero_mask.shape[:2] != (h, w):
+			zero_mask = cv2.resize(zero_mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+
+		alpha = np.where(zero_mask, 0, 255).astype(np.uint8)
+
+		if processed_frame.ndim == 2 or (processed_frame.ndim == 3 and processed_frame.shape[2] == 1):
+			gray = processed_frame if processed_frame.ndim == 2 else processed_frame[:, :, 0]
+			return cv2.merge([gray, gray, gray, alpha])
+		elif processed_frame.shape[2] == 3:
+			b, g, r = cv2.split(processed_frame)
+			return cv2.merge([b, g, r, alpha])
+		elif processed_frame.shape[2] == 4:
+			res = processed_frame.copy()
+			res[:, :, 3] = np.minimum(res[:, :, 3], alpha)
+			return res
+
+		return processed_frame
+
+	def crop_to_alpha_limit(self, frame: np.ndarray) -> np.ndarray:
+		"""
+		Crops a 4-channel (RGBA/BGRA) frame to the minimal bounding rectangle where alpha > 0.
+		Returns original frame if not 4 channels or if alpha mask is completely empty.
+		"""
+		if frame is None or frame.ndim != 3 or frame.shape[2] != 4:
+			return frame
+
+		alpha = frame[:, :, 3]
+		pts = np.argwhere(alpha > 0)
+		if pts.size == 0:
+			return frame
+
+		y_min, x_min = pts.min(axis=0)
+		y_max, x_max = pts.max(axis=0)
+
+		return np.ascontiguousarray(frame[y_min:y_max + 1, x_min:x_max + 1])
+
 	def _apply_transparency_theme(self):
-		"""Applies or removes transparent plot background theme based on use_rgba."""
+		"""Applies transparent plot background theme so transparency directly reveals the window background."""
 		if not hasattr(self, "_plot_transparent_theme") or not dpg.does_item_exist(self._plot_transparent_theme):
 			with dpg.theme() as self._plot_transparent_theme:
 				with dpg.theme_component(dpg.mvPlot):
@@ -518,52 +765,35 @@ class Image_viewer_win(WindowBase):
 					dpg.add_theme_color(dpg.mvPlotCol_FrameBg, (0, 0, 0, 0), category=dpg.mvThemeCat_Plots)
 		
 		if dpg.does_item_exist(self.plot_tag):
-			if self.use_rgba:
-				dpg.bind_item_theme(self.plot_tag, self._plot_transparent_theme)
-			else:
-				dpg.bind_item_theme(self.plot_tag, 0)
+			dpg.bind_item_theme(self.plot_tag, self._plot_transparent_theme)
 
-	def _on_toggle_rgba(self, sender, app_data, user_data=None):
-		"""Toggles RGBA mode and updates plot transparency."""
-		self.use_rgba = bool(app_data)
-		if self.texture_width > 0 and self.texture_height > 0:
-			self.init_viewer(self.texture_width, self.texture_height)
-			if self.last_image is not None:
-				with self.frame_lock:
-					self.latest_frame = self.last_image
-				self.update_event.set()
-		else:
-			self._apply_transparency_theme()
+	def _on_toggle_rgba(self, sender=None, app_data=None, user_data=None):
+		"""Retained for backward compatibility. Viewer operates permanently in RGBA."""
+		self.use_rgba = True
 
 	def convert_to_texture(self, frame: np.ndarray) -> np.ndarray:
-		"""Converts image to flattened RGB or RGBA float array for DearPyGui (optimized with buffer reuse)."""
+		"""Converts image to flattened RGBA float array for DearPyGui (always RGBA, GPU-ready)."""
 		if frame.dtype != np.uint8:
 			frame = frame.astype(np.uint8)
 		
-		channels = 4 if self.use_rgba else 3
-		expected_size = frame.shape[0] * frame.shape[1] * channels
+		h, w = frame.shape[:2]
+		channels = 4
+		expected_size = h * w * channels
 
 		if not hasattr(self, '_texture_buffer') or self._texture_buffer.size != expected_size:
 			self._texture_buffer = np.zeros(expected_size, dtype=np.float32)
 
-		if self.use_rgba:
-			if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] == 1):
-				conv_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGBA)
-			elif frame.shape[2] == 4:
-				conv_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGBA)
-			elif frame.shape[2] == 3:
-				conv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
-			else:
-				conv_frame = cv2.cvtColor(frame[:, :, :1], cv2.COLOR_GRAY2RGBA)
+		if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] == 1):
+			# Grayscale -> RGBA (R=G=B=Gray, A=255)
+			conv_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGBA)
+		elif frame.shape[2] == 4:
+			# BGRA -> RGBA (preserves existing Alpha)
+			conv_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGBA)
+		elif frame.shape[2] == 3:
+			# BGR -> RGBA (adds Alpha=255)
+			conv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
 		else:
-			if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] == 1):
-				conv_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-			elif frame.shape[2] == 3:
-				conv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-			elif frame.shape[2] == 4:
-				conv_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
-			else:
-				conv_frame = cv2.cvtColor(frame[:, :, :1], cv2.COLOR_GRAY2RGB)
+			conv_frame = cv2.cvtColor(frame[:, :, :1], cv2.COLOR_GRAY2RGBA)
 
 		flattened = conv_frame.ravel()
 		
@@ -585,19 +815,20 @@ class Image_viewer_win(WindowBase):
 	def _init_viewer_internal(self, width: int, height: int):
 		if dpg.does_item_exist(self.texture_tag):
 			dpg.delete_item(self.texture_tag)
+		if hasattr(self, 'checkerboard_texture_tag') and dpg.does_item_exist(self.checkerboard_texture_tag):
+			dpg.delete_item(self.checkerboard_texture_tag)
 		if dpg.does_item_exist(self.plot_tag):
 			dpg.delete_item(self.plot_tag)
 
-		channels = 4 if self.use_rgba else 3
-		fmt = dpg.mvFormat_Float_rgba if self.use_rgba else dpg.mvFormat_Float_rgb
+		channels = 4
+		fmt = dpg.mvFormat_Float_rgba
 
+		# Main image texture buffer
 		self._texture_buffer = np.zeros(height * width * channels, dtype=np.float32)
-		texture_data = self._texture_buffer
-
 		dpg.add_raw_texture(
 			width=width,
 			height=height,
-			default_value=texture_data,
+			default_value=self._texture_buffer,
 			tag=self.texture_tag,
 			format=fmt,
 			parent=self.texture_reg_tag,
@@ -614,7 +845,10 @@ class Image_viewer_win(WindowBase):
 		dpg.add_plot_legend(parent=plot_tag)
 		xaxis = dpg.add_plot_axis(dpg.mvXAxis, no_gridlines=True, no_tick_labels=True, no_tick_marks=True, parent=plot_tag)
 		yaxis = dpg.add_plot_axis(dpg.mvYAxis, no_gridlines=True, no_tick_labels=True, no_tick_marks=True, parent=plot_tag)
+		
+		# Main image series (transparent pixels show through to the window background)
 		dpg.add_image_series(self.texture_tag, [0, 0], [width, height], parent=yaxis)
+		
 		dpg.fit_axis_data(xaxis)
 		dpg.fit_axis_data(yaxis)
 
@@ -650,35 +884,22 @@ class Image_viewer_win(WindowBase):
 		return frame
 
 	def remap_and_annotate(self, frame, min_val=None, max_val=None):
-		"""Remaps intensities, adds scale bar and min/max text."""
+		"""Remaps intensities and colorizes frame."""
 		# Calculate 8-bit limits for the VIEW (sliders)
 		if dpg.get_value(self.auto_remap_tag):
-			# Optimization: Use strided sampling for percentile to avoid framerate drop
 			sample = frame[::5, ::5]
 			min_val_8bit = int(np.percentile(sample, 1))
 			max_val_8bit = int(np.max(sample))
 			dpg.set_value(self.sup_tag, max_val_8bit)
+			dpg.set_value(self.inf_tag, min_val_8bit)
 			
 			if min_val is None: min_val = min_val_8bit
 			if max_val is None: max_val = max_val_8bit
+
+		if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] == 1):
+			frame = self.remap_pixel_intensity(frame, dpg.get_value(self.inf_tag), dpg.get_value(self.sup_tag))
 		
-
-		frame = self.remap_pixel_intensity(frame, dpg.get_value(self.inf_tag), dpg.get_value(self.sup_tag))
-		
-		# Check if scale annotations are enabled
-		if dpg.get_value(self.show_scale_tag):
-			frame = self.add_intensity_scale(frame)
-
-			if min_val is None or max_val is None:
-				min_val, max_val = self.get_minmax_values(frame) 
-
-			frame = self.colorize_frame(frame)
-			cv2.putText(frame, f"{max_val:.0f}", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-			cv2.putText(frame, f"{min_val:.0f}", (30, frame.shape[0]-15), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-		else:
-			# Still colorize if needed, but no text/scale
-			frame = self.colorize_frame(frame)
-
+		frame = self.colorize_frame(frame)
 		return frame
 
 	def _handle_roi_input(self, sample):
@@ -991,73 +1212,6 @@ class Image_viewer_win(WindowBase):
 		for module in self.connections.get("Lowdepth Frame", []):
 			module.input_cb(data=image, data_type=IOTypes.FRAME)
 
-	def input_cb(self, *args, **kwargs):
-		"""
-		Node editor input callback.
-		Accepts frames, paths, samples, and (frame, mask) FRAME_MASK_PAIR.
-		"""
-		data = kwargs.get("data") if "data" in kwargs else (args[0] if args else None)
-		data_type = kwargs.get("data_type", None)
-
-		if data is None and "sample" in kwargs:
-			data = kwargs["sample"]
-		if data is None and "frame" in kwargs:
-			data = kwargs["frame"]
-
-		if data is None:
-			return
-
-		# Check for FRAME_MASK_PAIR: (frame, mask)
-		is_frame_mask_pair = (
-			data_type == IOTypes.FRAME_MASK_PAIR
-			or (isinstance(data, (tuple, list)) and len(data) == 2 
-				and isinstance(data[0], np.ndarray) and isinstance(data[1], np.ndarray))
-		)
-
-		if is_frame_mask_pair:
-			raw_frame, mask = data[0], data[1]
-			if self.use_rgba:
-				# Apply mask to alpha channel: non-selected area (mask == 0) is transparent
-				h, w = raw_frame.shape[:2]
-				if mask.dtype == bool:
-					alpha = np.where(mask, 255, 0).astype(np.uint8)
-				elif mask.max() <= 1 and mask.dtype != np.uint8:
-					alpha = (mask * 255).astype(np.uint8)
-				else:
-					alpha = mask.astype(np.uint8)
-				
-				if alpha.shape[:2] != (h, w):
-					alpha = cv2.resize(alpha, (w, h), interpolation=cv2.INTER_NEAREST)
-
-				if raw_frame.ndim == 2:
-					bgr = cv2.cvtColor(raw_frame, cv2.COLOR_GRAY2BGR)
-				elif raw_frame.shape[2] == 4:
-					bgr = raw_frame[:, :, :3]
-				else:
-					bgr = raw_frame
-				
-				frame = cv2.merge([bgr[:, :, 0], bgr[:, :, 1], bgr[:, :, 2], alpha])
-			else:
-				frame = raw_frame
-			self.update_image(frame)
-			return
-
-		if isinstance(data, (tuple, list)) and len(data) >= 1 and isinstance(data[0], np.ndarray):
-			data = data[0]
-
-		if isinstance(data, np.ndarray):
-			if self.use_rgba and data_type == IOTypes.MASK:
-				mask = data
-				alpha = np.where(mask > 0, 255, 0).astype(np.uint8) if mask.dtype != np.uint8 else mask
-				frame = cv2.merge([alpha, alpha, alpha, alpha])
-			else:
-				frame = data
-			self.update_image(frame)
-		elif isinstance(data, str) and os.path.exists(data):
-			img = cv2.imread(data, cv2.IMREAD_UNCHANGED)
-			if img is not None:
-				self.update_image(img)
-
 	def update_image(self, frame):
 		"""
 		Receives a new frame, emits dependent frames, and signals render thread (non-blocking).
@@ -1110,22 +1264,35 @@ class Image_viewer_win(WindowBase):
 			return
 		with self.lock:
 			try:
-				# Resize if needed (main-thread safe)
-				h, w = frame.shape[:2]
-				if h != self.texture_height or w != self.texture_width:
-					self.init_viewer(w, h)
-				
-				# Handle color images (3 or 4 channels) vs grayscale
+				# 1. Process color / grayscale image
 				if frame.ndim == 3 and frame.shape[2] in [3, 4] and frame.dtype == np.uint8:
 					processed = frame.copy()
+					minval, maxval = self.get_minmax_values(frame)
 					processed = self.process_roi(frame, processed)
 				else:
 					lowdepth = self.convert_to_lowdepth(frame)
 					minval, maxval = self._get_current_scale_limits()
-					processed = self.process_lowdepth(lowdepth, minval, maxval)
+					processed = self.remap_and_annotate(lowdepth, minval, maxval)
 					processed = self.process_roi(frame, processed)
+
+				# 2. Apply Zero as Alpha (converts to RGBA with alpha=0 on zeros)
+				if self.is_zero_as_alpha_enabled():
+					processed = self.apply_zero_as_alpha(frame, processed)
+
+				# 3. Crop to alpha limit (minimal bounding box where alpha > 0)
+				if self.is_crop_limit_enabled():
+					processed = self.crop_to_alpha_limit(processed)
+
+				# 4. Add scale annotations on top (always fully visible with alpha=255)
+				if dpg.get_value(self.show_scale_tag):
+					processed = self.add_scale_and_annotations(processed, minval, maxval)
+
+				# 5. Resize viewer texture if dimensions changed
+				h, w = processed.shape[:2]
+				if h != self.texture_height or w != self.texture_width:
+					self.init_viewer(w, h)
 				
-				# Update Texture
+				# 6. Update Texture
 				dpg.set_value(self.texture_tag, self.convert_to_texture(processed))
 				
 				# FPS Display Update
@@ -1156,35 +1323,95 @@ class Image_viewer_win(WindowBase):
 
 	def copy_to_clipboard(self, *args, **kwargs):
 		"""Copies the processed image to clipboard using the custom injector."""
-		if self.last_image is not None:
-			minval, maxval = self._get_current_scale_limits()
-			lowdepth = self.convert_to_lowdepth(self.last_image)
-			image = self.remap_and_annotate(lowdepth, minval, maxval)
-			clipboardinjector.send_image(image)
+		with self.lock:
+			try:
+				if self.last_image is None:
+					logger.warning("No image available to copy to clipboard.")
+					return
+
+				# Defensive copy to prevent race condition with render/input threads
+				target_img = self.last_image.copy()
+
+				if target_img.ndim == 3 and target_img.shape[2] in [3, 4] and target_img.dtype == np.uint8:
+					processed = target_img.copy()
+					minval, maxval = self.get_minmax_values(target_img)
+					processed = self.process_roi(target_img, processed)
+				else:
+					minval, maxval = self._get_current_scale_limits()
+					lowdepth = self.convert_to_lowdepth(target_img)
+					processed = self.remap_and_annotate(lowdepth, minval, maxval)
+					processed = self.process_roi(target_img, processed)
+
+				if self.is_zero_as_alpha_enabled():
+					processed = self.apply_zero_as_alpha(target_img, processed)
+
+				if self.is_crop_limit_enabled():
+					processed = self.crop_to_alpha_limit(processed)
+
+				if dpg.get_value(self.show_scale_tag):
+					processed = self.add_scale_and_annotations(processed, minval, maxval)
+
+				clipboardinjector.send_image(processed)
+			except Exception as e:
+				logger.error(f"Error copying image to clipboard: {e}")
 
 	def save_image(self, *args, **kwargs):
 		"""Saves both raw and processed images to PNG with indexed names."""
-		if self.last_image is not None:
-			minval, maxval = self._get_current_scale_limits()
-			raw = self.last_image
-			lowdepth = self.convert_to_lowdepth(raw)
-			processed = self.remap_and_annotate(lowdepth, minval, maxval)
+		with self.lock:
+			try:
+				if self.last_image is None:
+					logger.warning("No image available to save.")
+					return
 
-			name = dpg.get_value(self.name_tag)
-			
-			if self.export_path:
-				os.makedirs(self.export_path, exist_ok=True)
-				raw_path = os.path.join(self.export_path, f"{name}_RAW_{self.imgcount}.png")
-				processed_path = os.path.join(self.export_path, f"{name}_Processed_{self.imgcount}.png")
-			else:
-				raw_path = f"{name}_RAW_{self.imgcount}.png"
-				processed_path = f"{name}_Processed_{self.imgcount}.png"
+				# Defensive copy to prevent race condition with render/input threads
+				raw = self.last_image.copy()
 
-			cv2.imwrite(raw_path, raw)
-			cv2.imwrite(processed_path, processed)
+				if raw.ndim == 3 and raw.shape[2] in [3, 4] and raw.dtype == np.uint8:
+					processed = raw.copy()
+					minval, maxval = self.get_minmax_values(raw)
+					processed = self.process_roi(raw, processed)
+				else:
+					minval, maxval = self._get_current_scale_limits()
+					lowdepth = self.convert_to_lowdepth(raw)
+					processed = self.remap_and_annotate(lowdepth, minval, maxval)
+					processed = self.process_roi(raw, processed)
 
-			dpg.set_value(self.count_tag, f"count : {self.imgcount}")
-			self.imgcount += 1
+				if self.is_zero_as_alpha_enabled():
+					processed = self.apply_zero_as_alpha(raw, processed)
+
+				if self.is_crop_limit_enabled():
+					if processed.ndim == 3 and processed.shape[2] == 4:
+						alpha = processed[:, :, 3]
+						pts = np.argwhere(alpha > 0)
+						if pts.size > 0:
+							y_min, x_min = pts.min(axis=0)
+							y_max, x_max = pts.max(axis=0)
+							processed = np.ascontiguousarray(processed[y_min:y_max + 1, x_min:x_max + 1])
+							if raw.shape[:2] == alpha.shape[:2]:
+								raw = np.ascontiguousarray(raw[y_min:y_max + 1, x_min:x_max + 1])
+					else:
+						processed = self.crop_to_alpha_limit(processed)
+
+				if dpg.get_value(self.show_scale_tag):
+					processed = self.add_scale_and_annotations(processed, minval, maxval)
+
+				name = dpg.get_value(self.name_tag)
+				
+				if self.export_path:
+					os.makedirs(self.export_path, exist_ok=True)
+					raw_path = os.path.join(self.export_path, f"{name}_RAW_{self.imgcount}.png")
+					processed_path = os.path.join(self.export_path, f"{name}_Processed_{self.imgcount}.png")
+				else:
+					raw_path = f"{name}_RAW_{self.imgcount}.png"
+					processed_path = f"{name}_Processed_{self.imgcount}.png"
+
+				cv2.imwrite(raw_path, raw)
+				cv2.imwrite(processed_path, processed)
+
+				dpg.set_value(self.count_tag, f"count : {self.imgcount}")
+				self.imgcount += 1
+			except Exception as e:
+				logger.error(f"Error saving image: {e}")
 
 	def update_save_tooltip(self):
 		"""Updates the tooltip for the Save button based on the current export path."""
@@ -1197,143 +1424,155 @@ class Image_viewer_win(WindowBase):
 		self.imgcount = 0
 		dpg.set_value(self.count_tag, f"count: {self.imgcount}")
 
-	def _update_categories_count(self, sender, app_data, user_data=None):
+	def _update_categories_count(self, sender, app_data, user_data=None, *args, **kwargs):
 		self.categories_count = app_data
 
 	def send_palette_to_clipboard(self, *args, **kwargs):
 		"""Computes and sends the current category palette to the clipboard in palette.json format."""
-		if self.last_image is None:
-			logger.warning("No image loaded to compute palette.")
-			return
-		
-		# Get number of categories from UI
-		num_categories = dpg.get_value(self.cat_count_tag)
-		if num_categories < 1:
-			logger.warning("Number of categories must be at least 1.")
-			return
+		with self.lock:
+			try:
+				if self.last_image is None:
+					logger.warning("No image loaded to compute palette.")
+					return
+				
+				# Get number of categories from UI
+				num_categories = dpg.get_value(self.cat_count_tag)
+				if num_categories < 1:
+					logger.warning("Number of categories must be at least 1.")
+					return
 
-		minval, maxval = self._get_current_scale_limits()
-		range_diff = maxval - minval
-		if range_diff <= 0:
-			range_diff = 1.0
+				minval, maxval = self._get_current_scale_limits()
+				range_diff = maxval - minval
+				if range_diff <= 0:
+					range_diff = 1.0
 
-		palette_dict = {}
-		for i in range(num_categories):
-			bin_low = minval + i * range_diff / num_categories
-			bin_high = minval + (i + 1) * range_diff / num_categories
-			cat_name = f"{bin_low/1000.0:.3f}-{bin_high/1000.0:.3f}"
-			
-			val_center = int((i + 0.5) * 255 / num_categories)
-			pixel_img = np.array([[val_center]], dtype=np.uint8)
-			colorized = self.colorize_frame(pixel_img)
-			if colorized.ndim == 3 and colorized.shape[2] >= 3:
-				bgr = colorized[0, 0]
-				rgb = [int(bgr[2]), int(bgr[1]), int(bgr[0])]
-			else:
-				val = int(colorized[0, 0] if colorized.ndim >= 2 else val_center)
-				rgb = [val, val, val]
-			palette_dict[cat_name] = rgb
+				palette_dict = {}
+				for i in range(num_categories):
+					bin_low = minval + i * range_diff / num_categories
+					bin_high = minval + (i + 1) * range_diff / num_categories
+					cat_name = f"{bin_low/1000.0:.3f}-{bin_high/1000.0:.3f}"
+					
+					val_center = int((i + 0.5) * 255 / num_categories)
+					pixel_img = np.array([[val_center]], dtype=np.uint8)
+					colorized = self.colorize_frame(pixel_img)
+					if colorized.ndim == 3 and colorized.shape[2] >= 3:
+						bgr = colorized[0, 0]
+						rgb = [int(bgr[2]), int(bgr[1]), int(bgr[0])]
+					else:
+						val = int(colorized[0, 0] if colorized.ndim >= 2 else val_center)
+						rgb = [val, val, val]
+					palette_dict[cat_name] = rgb
 
-		import json
-		palette_json = json.dumps(palette_dict, indent=4)
-		clipboardinjector.send_text(palette_json)
-		logger.success(f"Palette with {num_categories} categories copied to clipboard in palette.json format.")
+				import json
+				palette_json = json.dumps(palette_dict, indent=4)
+				clipboardinjector.send_text(palette_json)
+				logger.success(f"Palette with {num_categories} categories copied to clipboard in palette.json format.")
+			except Exception as e:
+				logger.error(f"Error sending palette to clipboard: {e}")
 
 	def send_result_to_clipboard(self, *args, **kwargs):
 		"""Computes the category distribution and sends it to the clipboard in TSV format."""
-		if self.last_image is None:
-			logger.warning("No image loaded to compute proportions.")
-			return
+		with self.lock:
+			try:
+				if self.last_image is None:
+					logger.warning("No image loaded to compute proportions.")
+					return
 
-		num_categories = dpg.get_value(self.cat_count_tag)
-		if num_categories < 1:
-			logger.warning("Number of categories must be at least 1.")
-			return
+				num_categories = dpg.get_value(self.cat_count_tag)
+				if num_categories < 1:
+					logger.warning("Number of categories must be at least 1.")
+					return
 
-		# Convert raw image to a single channel intensity map for thresholding and binning
-		if self.last_image.ndim == 3 and self.last_image.shape[2] >= 3:
-			raw_gray = cv2.cvtColor(self.last_image, cv2.COLOR_BGR2GRAY if self.last_image.shape[2] == 3 else cv2.COLOR_BGRA2GRAY)
-		else:
-			raw_gray = self.last_image
+				# Defensive copy to prevent race condition with render/input threads
+				target_img = self.last_image.copy()
+				if self.is_crop_limit_enabled():
+					target_img = self.crop_to_alpha_limit(target_img)
 
-		# Get current scale limits in raw values
-		minval, maxval = self._get_current_scale_limits()
+				if target_img.ndim == 3 and target_img.shape[2] >= 3:
+					raw_gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY if target_img.shape[2] == 3 else cv2.COLOR_BGRA2GRAY)
+				else:
+					raw_gray = target_img
 
-		# Determine the region of interest
-		img_h, img_w = raw_gray.shape[:2]
-		active_rect = None
-		last_uuid = getattr(self, "last_selected_roi_uuid", None)
-		thresh_pct = 100
-		
-		if last_uuid and last_uuid in self.rois and self.rois[last_uuid].get("selected", False):
-			active_rect = self.rois[last_uuid]["rect"]
-			thresh_pct = self.rois[last_uuid].get("threshold", 100)
-		else:
-			for r_uuid, r_data in reversed(list(self.rois.items())):
-				if r_data.get("selected", False):
-					active_rect = r_data["rect"]
-					self.last_selected_roi_uuid = r_uuid
-					thresh_pct = r_data.get("threshold", 100)
-					break
+				# Get current scale limits in raw values
+				minval, maxval = self._get_current_scale_limits()
 
-		if active_rect:
-			x, y, w, h = active_rect
-			x1 = max(0, x)
-			y1 = max(0, y)
-			x2 = min(img_w, x + w)
-			y2 = min(img_h, y + h)
+				# Determine the region of interest
+				img_h, img_w = raw_gray.shape[:2]
+				active_rect = None
+				last_uuid = getattr(self, "last_selected_roi_uuid", None)
+				thresh_pct = 100
+				
+				if last_uuid and last_uuid in self.rois and self.rois[last_uuid].get("selected", False):
+					active_rect = self.rois[last_uuid]["rect"]
+					thresh_pct = self.rois[last_uuid].get("threshold", 100)
+				else:
+					for r_uuid, r_data in reversed(list(self.rois.items())):
+						if r_data.get("selected", False):
+							active_rect = r_data["rect"]
+							self.last_selected_roi_uuid = r_uuid
+							thresh_pct = r_data.get("threshold", 100)
+							break
 
-			# Invert Y coordinate for numpy array slicing (coordinate system mismatch)
-			y1_arr = img_h - y2
-			y2_arr = img_h - y1
-			y1_arr = max(0, min(y1_arr, img_h))
-			y2_arr = max(0, min(y2_arr, img_h))
+				if active_rect:
+					x, y, w, h = active_rect
+					x1 = max(0, x)
+					y1 = max(0, y)
+					x2 = min(img_w, x + w)
+					y2 = min(img_h, y + h)
 
-			roi_raw = raw_gray[y1_arr:y2_arr, x1:x2]
-			
-			if roi_raw.size > 0:
-				p_thresh = np.percentile(roi_raw, 100 - thresh_pct)
-				# Exclude zero values
-				mask = (roi_raw >= p_thresh) & (roi_raw > 0)
-				target_raw = roi_raw[mask]
-			else:
-				target_raw = np.array([], dtype=raw_gray.dtype)
-		else:
-			# Exclude zero values from the entire image
-			mask = raw_gray > 0
-			target_raw = raw_gray[mask]
+					# Invert Y coordinate for numpy array slicing (coordinate system mismatch)
+					y1_arr = img_h - y2
+					y2_arr = img_h - y1
+					y1_arr = max(0, min(y1_arr, img_h))
+					y2_arr = max(0, min(y2_arr, img_h))
 
-		# Compute range and binning
-		range_diff = maxval - minval
-		if range_diff <= 0:
-			range_diff = 1.0
+					roi_raw = raw_gray[y1_arr:y2_arr, x1:x2]
+					
+					if roi_raw.size > 0:
+						p_thresh = np.percentile(roi_raw, 100 - thresh_pct)
+						# Exclude zero values
+						mask = (roi_raw >= p_thresh) & (roi_raw > 0)
+						target_raw = roi_raw[mask]
+					else:
+						target_raw = np.array([], dtype=raw_gray.dtype)
+				else:
+					# Exclude zero values from the entire image
+					mask = raw_gray > 0
+					target_raw = raw_gray[mask]
 
-		if target_raw.size > 0:
-			# Normalize raw intensities to [0.0, 1.0] range
-			normalized = (target_raw.astype(np.float32) - minval) / range_diff
-			np.clip(normalized, 0.0, 1.0, out=normalized)
-			
-			# Map to [0, num_categories - 1] bin indices
-			indices = (normalized * num_categories).astype(np.int32)
-			indices = np.clip(indices, 0, num_categories - 1)
-			
-			bin_counts = np.bincount(indices, minlength=num_categories)
-		else:
-			bin_counts = np.zeros(num_categories, dtype=np.int32)
+				# Compute range and binning
+				range_diff = maxval - minval
+				if range_diff <= 0:
+					range_diff = 1.0
 
-		total_pixels = np.sum(bin_counts)
-		lines = ["Label\tCount\tPercentage (%)"]
-		for i in range(num_categories):
-			bin_low = minval + i * range_diff / num_categories
-			bin_high = minval + (i + 1) * range_diff / num_categories
-			cat_name = f"{bin_low/1000.0:.3f}-{bin_high/1000.0:.3f}"
-			count = int(bin_counts[i])
-			percent = (100.0 * count / total_pixels) if total_pixels > 0 else 0.0
-			lines.append(f"{cat_name}\t{count}\t{percent:.2f}")
+				if target_raw.size > 0:
+					# Normalize raw intensities to [0.0, 1.0] range
+					normalized = (target_raw.astype(np.float32) - minval) / range_diff
+					np.clip(normalized, 0.0, 1.0, out=normalized)
+					
+					# Map to [0, num_categories - 1] bin indices
+					indices = (normalized * num_categories).astype(np.int32)
+					indices = np.clip(indices, 0, num_categories - 1)
+					
+					bin_counts = np.bincount(indices, minlength=num_categories)
+				else:
+					bin_counts = np.zeros(num_categories, dtype=np.int32)
 
-		tsv_data = "\n".join(lines)
-		clipboardinjector.send_text(tsv_data)
-		logger.success(f"Category distribution copied to clipboard in TSV format.")
+				total_pixels = np.sum(bin_counts)
+				lines = ["Label\tCount\tPercentage (%)"]
+				for i in range(num_categories):
+					bin_low = minval + i * range_diff / num_categories
+					bin_high = minval + (i + 1) * range_diff / num_categories
+					cat_name = f"{bin_low/1000.0:.3f}-{bin_high/1000.0:.3f}"
+					count = int(bin_counts[i])
+					percent = (100.0 * count / total_pixels) if total_pixels > 0 else 0.0
+					lines.append(f"{cat_name}\t{count}\t{percent:.2f}")
+
+				tsv_data = "\n".join(lines)
+				clipboardinjector.send_text(tsv_data)
+				logger.success(f"Category distribution copied to clipboard in TSV format.")
+			except Exception as e:
+				logger.error(f"Error sending result to clipboard: {e}")
 
 	def on_close(self):
 		"""Release resources."""
