@@ -86,6 +86,7 @@ class IOTypes(str, Enum):
     CMD_LIST = ("cmd_list", "list", "Sequential list of processing commands")
     STATUS_DICT = ("status_dict", "dict", "Module health and operational status metadata")
     DATALIST = ("datalist", "list", "Structured X/Y data pairs for plotting or analysis")
+    DATAFRAME = ("dataframe", "pd.DataFrame", "Tabular data (pandas). Optional metadata (title, labels, limits...) in df.attrs")
     SAMPLE = ("sample", "dict", "Data sample with name, uuid, x, y, and optional action (select/unselect/rename)")
     POINT_LIST = ("point_list", "list", "List of 2D coordinates [[x, y], ...]")
     ROI_SAMPLE = ("roi_sample", "dict", "ROI data: {uuid, name, rect: [x,y,w,h], action, ...}")
@@ -96,5 +97,10 @@ class IOTypes(str, Enum):
         "Ordered list of frame dicts, each containing 'image' (np.ndarray), optional 'filename', 'x', etc.",
     )
     VECTORS = ("vectors", "dict", "Vector field and orientation data ({'angles': [...], 'magnitudes': [...], ...})")
+    PLAYBACK = (
+        "playback",
+        "dict",
+        "Video playback state {path, name, frame_idx, total_frames, playing} emitted for every displayed frame",
+    )
     ANY = ("any", "Any", "Generic data type for flexible connections")
 

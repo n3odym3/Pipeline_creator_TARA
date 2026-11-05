@@ -29,11 +29,11 @@ class StartupDialog:
     Startup Loader Dialog component class.
 
     Presents a centered modal dialog at boot allowing the user to select
-    and load an Automation Script or a Pipeline / Layout.
+    and load an Automation Script or a Pipeline.
     """
 
     MODE_SCRIPT = "Automation Script"
-    MODE_PIPELINE = "Pipeline / Layout"
+    MODE_PIPELINE = "Pipeline"
 
     def __init__(self, main_win: MainWin) -> None:
         self.main_win: MainWin = main_win
@@ -71,18 +71,24 @@ class StartupDialog:
 
         if pump_frames:
             while dpg.is_dearpygui_running() and dpg.does_item_exist(self.winID):
-                vp_w = dpg.get_viewport_client_width()
-                vp_h = dpg.get_viewport_client_height()
-                win_size = dpg.get_item_rect_size(self.winID)
-                if win_size[0] > 0 and win_size[1] > 0:
-                    pos_x = max(0, (vp_w - win_size[0]) // 2)
-                    pos_y = max(0, (vp_h - win_size[1]) // 2)
-                    dpg.set_item_pos(self.winID, [pos_x, pos_y])
-
                 from core.automation_manager import automation_manager
 
                 automation_manager.process_pending_steps()
                 dpg.render_dearpygui_frame()
+
+                if not dpg.does_item_exist(self.winID):
+                    break
+
+                try:
+                    vp_w = dpg.get_viewport_client_width()
+                    vp_h = dpg.get_viewport_client_height()
+                    win_size = dpg.get_item_rect_size(self.winID)
+                    if win_size[0] > 0 and win_size[1] > 0:
+                        pos_x = max(0, (vp_w - win_size[0]) // 2)
+                        pos_y = max(0, (vp_h - win_size[1]) // 2)
+                        dpg.set_item_pos(self.winID, [pos_x, pos_y])
+                except Exception:
+                    pass
 
             for _ in range(2):
                 if dpg.is_dearpygui_running():
@@ -115,7 +121,7 @@ class StartupDialog:
     def _refresh_file_list(self) -> None:
         selected_mode = dpg.get_value(self._radio_tag)
         folder_key = "default_pipeline_folder" if selected_mode == self.MODE_PIPELINE else "default_scripts_folder"
-        default_folder_name = "layouts" if selected_mode == self.MODE_PIPELINE else "scripts"
+        default_folder_name = "pipelines" if selected_mode == self.MODE_PIPELINE else "scripts"
         folder_path = self._resolve_folder_path(folder_key, default_folder_name)
 
         file_map = self._scan_folder_json_files(folder_path)
@@ -173,7 +179,7 @@ class StartupDialog:
     ) -> None:
         selected_mode = dpg.get_value(self._radio_tag)
         folder_key = "default_pipeline_folder" if selected_mode == self.MODE_PIPELINE else "default_scripts_folder"
-        default_folder_name = "layouts" if selected_mode == self.MODE_PIPELINE else "scripts"
+        default_folder_name = "pipelines" if selected_mode == self.MODE_PIPELINE else "scripts"
         folder_path = self._resolve_folder_path(folder_key, default_folder_name)
 
         path_str = file_explorer.select_file(
@@ -262,7 +268,7 @@ class StartupDialog:
             pos=[pos_x, pos_y],
         ):
             dpg.add_spacer(height=s(6))
-            dpg.add_text("Choose a Script or Pipeline / Layout to load on startup:", color=(180, 180, 200, 255))
+            dpg.add_text("Choose a Script or Pipeline to load on startup:", color=(180, 180, 200, 255))
             dpg.add_separator()
             dpg.add_spacer(height=s(8))
 

@@ -219,7 +219,7 @@ _IN_FRAME_PUMP: bool = False
 def pump_dpg_frames(count: int = 2) -> None:
     """
     Pump a given number of DPG frames on the main thread so ImGui computes geometry,
-    viewport dimensions, and widget bounding rects during initial layout loading.
+    viewport dimensions, and widget bounding rects during initial pipeline loading.
     """
     global _IN_FRAME_PUMP
     if _IN_FRAME_PUMP:
@@ -286,6 +286,8 @@ def clear_registry() -> None:
             main_win.refresh_view_menu()
         if hasattr(main_win, "node_editor") and hasattr(main_win.node_editor, "refresh_view_menu"):
             main_win.node_editor.refresh_view_menu()
+        from core.tutorial_manager import tutorial_manager
+        tutorial_manager._update_step_toolbar_state()
     except Exception:
         pass
 
@@ -330,6 +332,8 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
     # Resolve base_path relative to project root if it's not absolute
     if not Path(base_path).is_absolute():
         search_path = PROJECT_ROOT / base_path
+    else:
+        search_path = Path(base_path)
     if not search_path.exists():
         logger.warning(f"Modules path '{search_path}' does not exist")
         return {}
@@ -337,7 +341,9 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
     # Scan requirements.txt files for missing package dependencies
     try:
         from core.dependency_manager import dependency_manager
-        dependency_manager.check_all_modules(str(search_path), clear_existing=force_reload)
+        from core.paths import is_compiled
+        if not is_compiled():
+            dependency_manager.check_all_modules(str(search_path), clear_existing=force_reload)
     except Exception as e:
         logger.warning(f"Could not check requirements.txt files: {e}")
     # Pre-add all module directories to sys.path so their local libraries are immediately importable.
@@ -433,11 +439,18 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
 
                 missing_imports_retry = _check_imports_statically(str(full_path))
                 if missing_imports_retry:
-                    if module_folder not in missing_deps_detected:
-                        missing_deps_detected[module_folder] = []
-                    missing_deps_detected[module_folder].extend(missing_imports_retry)
-                    logger.warning(f"Module '{module_name}' has missing packages: {', '.join(missing_imports_retry)}")
-                    logger.debug(f"Skipping module '{module_name}' due to missing dependencies (after retry with local paths)")
+                    from core.paths import is_compiled
+                    if is_compiled():
+                        logger.info(
+                            f"Module '{module_name}' ignored (incompatible: missing dependencies in compiled mode: "
+                            f"{', '.join(missing_imports_retry)})"
+                        )
+                    else:
+                        if module_folder not in missing_deps_detected:
+                            missing_deps_detected[module_folder] = []
+                        missing_deps_detected[module_folder].extend(missing_imports_retry)
+                        logger.warning(f"Module '{module_name}' has missing packages: {', '.join(missing_imports_retry)}")
+                        logger.debug(f"Skipping module '{module_name}' due to missing dependencies (after retry with local paths)")
                     continue
                 else:
                     logger.info(f"Module '{module_name}' resolved missing packages after adding local paths to sys.path")
@@ -449,8 +462,9 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
 
             if validator:
                 report = validator.validate_module(str(full_path))
-                if not report.is_valid:
+                if report.has_issues:
                     module_validation_manager.validation_issues[str(full_path)] = report
+                if not report.is_valid:
                     logger.warning(f"Module '{module_name}' failed validation and will not be loaded")
                     continue
 
@@ -499,12 +513,24 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
             # Fallback: extract missing package from runtime error
             missing_package = _extract_missing_package(str(e))
             if missing_package:
-                if module_folder not in missing_deps_detected:
-                    missing_deps_detected[module_folder] = []
-                missing_deps_detected[module_folder].append(missing_package)
-                logger.warning(f"Module '{module_name}' failed to load: missing package '{missing_package}'")
+                from core.paths import is_compiled
+                if is_compiled():
+                    logger.info(
+                        f"Module '{module_name}' ignored (incompatible: missing package '{missing_package}' in compiled mode)"
+                    )
+                else:
+                    if module_folder not in missing_deps_detected:
+                        missing_deps_detected[module_folder] = []
+                    missing_deps_detected[module_folder].append(missing_package)
+                    logger.warning(f"Module '{module_name}' failed to load: missing package '{missing_package}'")
             else:
                 logger.error(f"Failed to load module {module_name}: {e}")
+                from core.module_validation_manager import ValidationReport, module_validation_manager
+                rep = module_validation_manager.validation_issues.get(str(full_path))
+                if rep is None:
+                    rep = ValidationReport(module_path=str(full_path), is_valid=False)
+                    module_validation_manager.validation_issues[str(full_path)] = rep
+                rep.add_error(f"ImportError during load: {e}", category="runtime")
             if not skip_validation:
                 continue
             # When skip_validation is on, fall through to still try registering if EXPORTED_CLASS exists
@@ -530,6 +556,12 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
                 continue
         except Exception as e:
             logger.error(f"Failed to load module {module_name}: {e}")
+            from core.module_validation_manager import ValidationReport, module_validation_manager
+            rep = module_validation_manager.validation_issues.get(str(full_path))
+            if rep is None:
+                rep = ValidationReport(module_path=str(full_path), is_valid=False)
+                module_validation_manager.validation_issues[str(full_path)] = rep
+            rep.add_error(f"Runtime loading exception: {e}", category="runtime")
             continue
 
         # Only validate and register if module has EXPORTED_CLASS
@@ -537,9 +569,10 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
             # Validate module AFTER confirming it's an actual module entry point
             if validator:
                 report = validator.validate_module(str(full_path))
-                if not report.is_valid:
-                    # Store validation issues and skip registration
+                if report.has_issues:
+                    # Store validation issues (errors and/or warnings)
                     module_validation_manager.validation_issues[str(full_path)] = report
+                if not report.is_valid:
                     logger.warning(f"Module '{module_name}' failed validation and will not be loaded")
                     continue
             
@@ -549,7 +582,8 @@ def get_available_modules(base_path: str = "modules", force_reload: bool = False
             module_registry[module_name] = cls
     
     # Report detected missing dependencies
-    if missing_deps_detected:
+    from core.paths import is_compiled
+    if missing_deps_detected and not is_compiled():
         logger.info(f"Detected {len(missing_deps_detected)} module(s) with missing dependencies")
         _report_missing_dependencies(missing_deps_detected)
     
@@ -628,6 +662,10 @@ def _report_missing_dependencies(missing_deps: Dict[str, List[str]]) -> None:
     Report missing dependencies to the dependency manager.
     This allows the UI dialog to show them for installation.
     """
+    from core.paths import is_compiled
+    if is_compiled():
+        return
+
     try:
         from core.dependency_manager import dependency_manager
 
@@ -647,11 +685,11 @@ def _report_missing_dependencies(missing_deps: Dict[str, List[str]]) -> None:
 
 def export_workspace(
     instances: Optional[Any] = None,
-    filepath: Optional[str] = "layout.json",
+    filepath: Optional[str] = "pipeline.json",
     node_positions: Optional[Dict[str, Tuple[float, float]]] = None,
     is_relative: bool = True,
 ) -> Dict[str, Any]:
-    """Export the layout and connections of all modules to a JSON file and return the dict."""
+    """Export the pipeline and connections of all modules to a JSON file and return the dict."""
     if instances is None:
         inst_list = list(get_registered_modules())
     elif isinstance(instances, dict):
@@ -700,6 +738,8 @@ def export_workspace(
     }
 
     if filepath:
+        if not str(filepath).lower().endswith(".json"):
+            filepath = f"{filepath}.json"
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
         logger.success(f"Workspace exported to {filepath}")
@@ -709,13 +749,13 @@ def export_workspace(
 
 
 def load_workspace(
-    filepath: str = "layout.json",
+    filepath: str = "pipeline.json",
     module_registry: Optional[Dict[str, Type[Any]]] = None,
     start_cleaned: bool = True,
     only_position: bool = False
 ) -> Dict[str, Any]:
     """
-    Load a workspace layout from a JSON file.
+    Load a workspace pipeline from a JSON file.
     If only_position is True, the function will only reposition existing windows
     based on the JSON without instantiating or destroying them.
     """
@@ -839,7 +879,7 @@ def load_from_dict(
     start_cleaned: bool = True
 ) -> Dict[str, Any]:
     """
-    Load a workspace layout from a dictionary and recreate modules, merges, and connections.
+    Load a workspace pipeline from a dictionary and recreate modules, merges, and connections.
     Returns a dict mapping UUID → instance.
     
     Args:
@@ -900,12 +940,12 @@ def load_from_dict(
         module_key = wdata["module"]
         cls = module_registry.get(module_key)
         
-        # Fallback for older layouts where "modules." might have been omitted
+        # Fallback for older pipelines where "modules." might have been omitted
         if not cls and not module_key.startswith("modules."):
             cls = module_registry.get(f"modules.{module_key}")
             
         if not cls:
-            msg = f"Unknown module in layout: {module_key}"
+            msg = f"Unknown module in pipeline: {module_key}"
             logger.warning(msg)
             continue
 
@@ -963,15 +1003,22 @@ def load_from_dict(
             module_name = wdata.get('module', 'unknown').split('.')[-1]
             missing_package = _extract_missing_package(str(e))
             
+            from core.paths import is_compiled
             if missing_package:
-                try:
-                    from core.dependency_manager import dependency_manager
-                    if module_name not in dependency_manager.missing_deps:
-                        dependency_manager.missing_deps[module_name] = []
-                    if missing_package not in dependency_manager.missing_deps[module_name]:
-                        dependency_manager.missing_deps[module_name].append(missing_package)
-                except ImportError:
-                    pass
+                if is_compiled():
+                    logger.info(
+                        f"Module '{module_name}' ignored during workspace load "
+                        f"(incompatible: missing package '{missing_package}' in compiled mode)"
+                    )
+                else:
+                    try:
+                        from core.dependency_manager import dependency_manager
+                        if module_name not in dependency_manager.missing_deps:
+                            dependency_manager.missing_deps[module_name] = []
+                        if missing_package not in dependency_manager.missing_deps[module_name]:
+                            dependency_manager.missing_deps[module_name].append(missing_package)
+                    except ImportError:
+                        pass
             
             continue
         except Exception as e:
@@ -1035,11 +1082,11 @@ def load_from_dict(
         if src and (tgt := instances.get(tgt_entry)) and output_key is not None:
             src.connect_to(tgt, output=output_key)
 
-    # Final frame pump to settle layout geometry after merging (only if merges exist)
+    # Final frame pump to settle pipeline geometry after merging (only if merges exist)
     if merge_requests:
         pump_dpg_frames(1)
 
-    # Load and register views if they exist in layout data
+    # Load and register views if they exist in pipeline data
     views = dict(data.get("views", {}))
     views["Default"] = {
         "windows": data.get("windows", []),
@@ -1060,7 +1107,7 @@ def load_from_dict(
 
 def apply_view_data(view_data: dict) -> None:
     """
-    Apply a view layout directly from a dictionary.
+    Apply a view pipeline directly from a dictionary.
     Hides all registered windows, then shows and repositions only the listed ones.
     """
     # Step 1 – hide every registered window
@@ -1100,6 +1147,8 @@ def register_views(views: Dict[str, Any], merge: bool = False) -> None:
             main_win.refresh_view_menu()
         if hasattr(main_win, "node_editor") and hasattr(main_win.node_editor, "refresh_view_menu"):
             main_win.node_editor.refresh_view_menu()
+        from core.tutorial_manager import tutorial_manager
+        tutorial_manager._update_step_toolbar_state()
     except Exception:
         pass
 
@@ -1122,7 +1171,7 @@ def apply_named_view(view_name: str) -> bool:
 
 def apply_view(mode: str) -> None:
     """
-    Apply a secondary layout view for the given mode.
+    Apply a secondary pipeline view for the given mode.
 
     Strategy:
       1. Hide ALL currently registered windows.
