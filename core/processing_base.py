@@ -17,33 +17,44 @@ class ProcessingBase:
 
     Supports different queue drop policies and runtime parameter updates.
     """
+    buffer_size: int = 10
+    drop_policy: str = "drop_new"
+    daemon: bool = True
 
     def __init__(
         self,
         params: Optional[Dict[str, Any]] = None,
         *,
-        buffer_size: int = 10,
-        drop_policy: str = "drop_new",
-        daemon: bool = True,
+        buffer_size: Optional[int] = None,
+        drop_policy: Optional[str] = None,
+        daemon: Optional[bool] = None,
+        **kwargs: Any,
     ) -> None:
         """
         Initialize the processing base.
 
         Args:
             params: Initial parameters dictionary passed to the worker.
-            buffer_size: Max number of items in the input queue.
-            drop_policy: 'drop_new', 'drop_oldest', or 'block'.
-            daemon: Whether the worker process runs as a daemon.
+            buffer_size: Max number of items in the input queue (arg -> class attribute -> 10).
+            drop_policy: 'drop_new', 'drop_oldest', or 'block' (arg -> class attribute -> 'drop_new').
+            daemon: Whether the worker process runs as a daemon (arg -> class attribute -> True).
+            **kwargs: Extra arguments forwarded safely.
         """
+        cls = type(self)
         self.params: Dict[str, Any] = dict(params) if params else {}
-        self._drop_policy = drop_policy
+        self._drop_policy = (
+            drop_policy if drop_policy is not None else getattr(cls, "drop_policy", "drop_new")
+        )
+        resolved_buffer_size = (
+            buffer_size if buffer_size is not None else getattr(cls, "buffer_size", 10)
+        )
+        self._daemon = daemon if daemon is not None else getattr(cls, "daemon", True)
 
-        self._in_queue: mp.Queue[Any] = mp.Queue(maxsize=max(1, buffer_size))
+        self._in_queue: mp.Queue[Any] = mp.Queue(maxsize=max(1, resolved_buffer_size))
         self._out_queue: mp.Queue[Any] = mp.Queue(1)
         self._ctrl_queue: mp.Queue[Tuple[str, Optional[Dict[str, Any]]]] = mp.Queue()
 
         self._process: Optional[mp.Process] = None
-        self._daemon = daemon
 
     def start(self) -> None:
         """Start or restart the worker process."""
@@ -117,6 +128,9 @@ class ProcessingBase:
         except queue.Empty:
             return None
 
+    # Alias to match documentation and hybrid node patterns
+    poll_result = get
+
     def queue_size(self) -> int:
         """
         Get the current size of the input queue.
@@ -155,32 +169,43 @@ class ProcessingBase:
         """
         self._ctrl_queue.put(("update", kwargs))
 
+    def _drain_ctrl_queue(self) -> bool:
+        """Apply all pending control commands (worker side). Returns True if a stop was requested."""
+        try:
+            while True:
+                cmd, payload = self._ctrl_queue.get_nowait()
+                if cmd == "stop":
+                    return True
+                elif cmd == "update" and payload:
+                    self.params.update(payload)
+                elif cmd == "clear":
+                    while not self._in_queue.empty():
+                        try:
+                            self._in_queue.get_nowait()
+                        except (queue.Empty, Exception):
+                            break
+        except (queue.Empty, Exception):
+            pass
+        return False
+
     def _worker_entrypoint(self) -> None:
         """
         Internal method run by the worker process.
         Listens for control commands and data to process.
         """
         while True:
-            try:
-                while True:
-                    cmd, payload = self._ctrl_queue.get_nowait()
-                    if cmd == "stop":
-                        return
-                    elif cmd == "update" and payload:
-                        self.params.update(payload)
-                    elif cmd == "clear":
-                        while not self._in_queue.empty():
-                            try:
-                                self._in_queue.get_nowait()
-                            except (queue.Empty, Exception):
-                                break
-            except (queue.Empty, Exception):
-                pass
+            if self._drain_ctrl_queue():
+                return
 
             try:
                 data = self._in_queue.get(timeout=0.01)
             except queue.Empty:
                 continue
+
+            # Params updates sent right before this item was submitted may not have been read yet
+            # (the worker was blocked on the input queue): apply them before processing.
+            if self._drain_ctrl_queue():
+                return
 
             try:
                 result = self._process_data(data, self.params)

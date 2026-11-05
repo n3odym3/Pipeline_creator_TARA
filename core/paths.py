@@ -7,6 +7,23 @@ from typing import Any, Optional
 
 
 
+def is_compiled() -> bool:
+    """
+    Return True if running as a compiled standalone executable (sys.frozen / Nuitka).
+    """
+    return bool(
+        getattr(sys, "frozen", False)
+        or "__compiled__" in globals()
+        or "__compiled__" in sys.modules
+        or hasattr(sys, "__nuitka_version__")
+    )
+
+
+IS_COMPILED: bool = is_compiled()
+if IS_COMPILED and not getattr(sys, "frozen", False):
+    sys.frozen = True
+
+
 def get_project_root() -> Path:
     """
     Returns the absolute path to the project root.
@@ -16,7 +33,7 @@ def get_project_root() -> Path:
     2. Running as compiled executable (sys.frozen / Nuitka): Root is the folder
        containing the executable (sys.executable).
     """
-    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+    if is_compiled():
         return Path(sys.executable).parent
     else:
         return Path(__file__).parent.parent.resolve()
@@ -25,7 +42,7 @@ def get_project_root() -> Path:
 PROJECT_ROOT: Path = get_project_root()
 
 MODULES_DIR: Path = PROJECT_ROOT / "modules"
-LAYOUTS_DIR: Path = PROJECT_ROOT / "layouts"
+PIPELINES_DIR: Path = PROJECT_ROOT / "pipelines"
 SCRIPTS_DIR: Path = PROJECT_ROOT / "scripts"
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
