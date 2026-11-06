@@ -1,10 +1,12 @@
 from typing import List, Tuple, Dict, Any, Optional, Union
 from pathlib import Path
 import dearpygui.dearpygui as dpg
+from loguru import logger
+
+from config.display_scaling import display_scaling
 from core.window_base import WindowBase
 from core.input_output_types import IOTypes
 from modules.nodal_data_processor.data_node_editor import DataNodeEditor
-from loguru import logger
 
 
 class NodalDataProcessor(WindowBase):
@@ -15,57 +17,52 @@ class NodalDataProcessor(WindowBase):
     Users can connect processor nodes to manipulate sample data without modifying source code.
     """
     
-    def __init__(self,
-                 label: str = "Nodal Data Processor",
-                 win_width: int = 800,
-                 win_height: int = 600,
-                 pos: Tuple[int, int] = (100, 100),
-                 uuid: Optional[Union[int, str]] = None,
-                 outputs: Optional[Dict[str, Any]] = None,
-                 visible: bool = True) -> None:
+    # 1. Window Configuration
+    label = "Nodal Data Processor"
+    win_width = display_scaling.scale(800)
+    win_height = display_scaling.scale(600)
+
+    # 2. Input/Output definitions
+    accepted_input_types = [IOTypes.SAMPLE, IOTypes.DATALIST, IOTypes.CMD_DICT]
+    outputs = {
+        "Processed Data": IOTypes.SAMPLE,
+        "Metadata": IOTypes.ANY,
+    }
+
+    # 3. Persistent fields
+    persistent_fields = ["label"]
+
+    def __init__(self, **kwargs: Any) -> None:
         """
         Initialize the Nodal Data Processor window.
         """
-        super().__init__(
-            label=label,
-            pos=pos,
-            win_width=win_width,
-            win_height=win_height,
-            uuid=uuid,
-            outputs=outputs,
-            visible=visible
-        )
-        
-        # Persistent fields
-        self._persistent_fields: List[str] = ["label"]
-        
-        # Input/Output types
-        self.accepted_input_types: List[Any] = [IOTypes.SAMPLE, IOTypes.DATALIST, IOTypes.CMD_DICT]  # Accept data formats and commands
-        self.outputs: Dict[str, Any] = {
-            "Processed Data": IOTypes.SAMPLE,  # Output as SAMPLE
-            "Metadata": IOTypes.ANY              # Generic metadata output
-        }
-        self.connections: Dict[str, List[Any]] = {k: [] for k in self.outputs}
-        
+        super().__init__(**kwargs)
+
         # Internal state
-        self.last_input_sample: Optional[Dict[str, Any]] = None  # Store last input sample
-        self.last_output_sample: Optional[Dict[str, Any]] = None  # Store last output sample
-        
+        self._is_closing: bool = False
+        self.last_input_sample: Optional[Dict[str, Any]] = None
+        self.last_output_sample: Optional[Dict[str, Any]] = None
+
         # Build the UI
-        with dpg.window(
-            label=self.label,
-            width=self.win_width,
-            height=self.win_height,
-            pos=self.pos,
-            tag=self.winID,
-            show=self.visible
-        ):
+        with self.window():
             # Create the node editor
             self.node_editor: DataNodeEditor = DataNodeEditor(parent_tag=self.winID, parent_win=self)
-            
+
             # Status text
             self.status_text_tag: str = f"nodal_status_{self.UUID}"
             dpg.add_text("Ready", tag=self.status_text_tag, color=(200, 200, 200))
+
+        self.update_permission()
+
+    def update_permission(self) -> None:
+        """Adapts UI according to application mode."""
+        from core.app_state import app_state
+
+        mode = app_state.mode
+        is_user = (mode == "user")
+
+        if dpg.does_item_exist(self.winID):
+            dpg.configure_item(self.winID, no_close=is_user)
     
     def input_cb(self, *args: Any, **kwargs: Any) -> None:
         """
@@ -230,7 +227,10 @@ class NodalDataProcessor(WindowBase):
             
     def _send_output(self, sample: Dict[str, Any]) -> None:
         """Send processed SAMPLE to connected modules."""
-        for module in self.connections.get("Processed Data", []):
+        targets = self.connections.get("Processed Data")
+        if not targets:
+            return
+        for module in targets:
             try:
                 module.input_cb(sample=sample, data_type=IOTypes.SAMPLE)
             except Exception as e:
@@ -238,28 +238,37 @@ class NodalDataProcessor(WindowBase):
  
     def _send_metadata(self, metadata: Dict[str, Any], base_sample: Optional[Dict[str, Any]] = None) -> None:
         """Send metadata to connected modules. Detects and sends auxiliary samples if found."""
+        proc_targets = self.connections.get("Processed Data")
+        meta_targets = self.connections.get("Metadata")
+        if not proc_targets and not meta_targets:
+            return
+
         # Check for extra samples to be displayed (superimposed)
         # Any dict in metadata that has 'x', 'y', and 'name' is treated as an extra sample
         # Derive its UUID from the base sample name for real-time updates
-        for k, v in metadata.items():
-            if isinstance(v, dict) and "x" in v and "y" in v and "name" in v:
-                # If name starts with an underscore, prepend the base sample name
-                if base_sample and v.get("name", "").startswith("_"):
-                    base_name = base_sample.get("name", "Data")
-                    v["name"] = f"{base_name}{v['name']}"
+        if proc_targets:
+            for k, v in metadata.items():
+                if isinstance(v, dict) and "x" in v and "y" in v and "name" in v:
+                    # If name starts with an underscore, prepend the base sample name
+                    if base_sample and v.get("name", "").startswith("_"):
+                        base_name = base_sample.get("name", "Data")
+                        v["name"] = f"{base_name}{v['name']}"
 
-                if "uuid" not in v:
-                    # Prefer UUID for stability across renames, fallback to name
-                    base_id = base_sample.get("uuid") or base_sample.get("name") if base_sample else self.UUID
-                    v["uuid"] = f"{base_id}_meta_{k}"
-                self._send_output(v)
+                    if "uuid" not in v:
+                        # Prefer UUID for stability across renames, fallback to name
+                        base_id = base_sample.get("uuid") or base_sample.get("name") if base_sample else self.UUID
+                        v["uuid"] = f"{base_id}_meta_{k}"
+                    self._send_output(v)
+
+        if not meta_targets:
+            return
 
         # Proceed with standard metadata output
         data = metadata
         if len(metadata) == 1:
-            data = list(metadata.values())[0]
+            data = next(iter(metadata.values()))
             
-        for module in self.connections.get("Metadata", []):
+        for module in meta_targets:
             try:
                 module.input_cb(data, data=data, sample=data, data_type=IOTypes.ANY)
             except Exception as e:
@@ -279,10 +288,13 @@ class NodalDataProcessor(WindowBase):
 
     def on_close(self) -> None:
         """Clean up the node editor resources."""
+        if getattr(self, "_is_closing", False):
+            return
+        self._is_closing = True
         if hasattr(self, 'node_editor'):
             self.node_editor.cleanup()
+        super().on_close()
 
 
 EXPORTED_CLASS = NodalDataProcessor
 EXPORTED_NAME = "Nodal Data Processor"
-
