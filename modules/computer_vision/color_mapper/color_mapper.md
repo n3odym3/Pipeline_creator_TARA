@@ -1,44 +1,63 @@
-# Color Mapper Module
+# Color Mapper Module (`color_mapper_win.py`)
 
-The **Color Mapper** module classifies pixels within masked or full-frame regions by mapping their Euclidean/CIE-Lab distances against a custom reference color palette. It features an interactive palette calibration editor, ROI color inspection, and real-time distribution statistics output.
-
----
-
-## Technical Specifications
-
-- **Accepted Inputs**:
-  - `In` (Type: `FRAME`, raw camera frame).
-  - `In` (Type: `FRAME_MASK_PAIR`, synchronized frame and segmentation mask).
-  - `In` (Type: `FOLDER_PATH`, destination export directory).
-  - `In` (Type: `CMD_DICT` / `TEXT`, sample labeling and workflow control commands).
-- **Outputs**:
-  - `Mapped Frame` (Type: `FRAME`, quantized image colorized with palette values).
-  - `Distribution` (Type: `CMD_DICT`, percentage breakdown across palette classes).
-  - `CMD` (Type: `CMD_DICT`, synchronization triggers for upstream segmentation nodes).
+## Description
+Le module **Color Mapper** effectue la classification et la quantification des couleurs des pixels d'une image (sur la totalité de la trame ou à l'intérieur d'un masque de segmentation) par rapport à une palette de référence personnalisable.
+Il intègre un visualiseur interactif, un outil de sonde ROI avec calcul du centroïde moyen RGB et de la classe la plus proche, un assistant de calibration interactif (wizard) et un pipeline d'exportation vers le Color Aggregator ou les modules de visualisation statistique.
 
 ---
 
-## Key Features & Controls
+## Entrées / Sorties
 
-- **Interactive Palette Editor**:
-  - Add, rename, and delete color classes.
-  - Interactive color picker pastilles for fine-tuning RGB centroids.
-  - Interactive Calibration Wizard: Prompts the user to `CTRL+Click` on targets in the image to calibrate reference colors.
-- **ROI Probing & Inspection**:
-  - Dynamic overlay showing mean RGB and closest matched palette class under mouse cursor.
-  - Real-Time Distribution (`RT Out`): Continuously forwards local ROI proportions to connected pie/bar plotters.
-- **Image Export & Cropping**:
-  - Computes minimal bounding boxes around the mask.
-  - Saves cropped transparent RGBA versions (`_RAW.png` and `_processed.png`) into the specified project folder.
-- **Compare Mode**: Hold `Compare` to preview the original frame.
+### Entrées (Inputs)
+- **`IOTypes.FRAME`** : Trame vidéo brute (BGR ou RGB).
+- **`IOTypes.FRAME_MASK_PAIR`** : Paire synchronisée constituée d'une image et de son masque binaire (ex: issu de SAM ou d'un seuillage).
+- **`IOTypes.FOLDER_PATH`** : Répertoire cible pour la sauvegarde des images rognées détourées.
+- **`IOTypes.CMD_DICT` / `IOTypes.TEXT`** : Commandes de nommage d'échantillon (`full_name`) et réinitialisation de pipeline (`clear`).
+
+### Sorties (Outputs)
+- **`Mapped Frame`** (`IOTypes.FRAME`) : Image quantifiée et colorisée avec les couleurs de la palette.
+- **`Distribution`** (`IOTypes.CMD_DICT`) : Répartition statistique des surfaces/pourcentages pour chaque classe de couleur (compatible avec le module *Color Pie Plot*).
+- **`CMD`** (`IOTypes.CMD_DICT`) : Commandes de réinitialisation émises vers les modules amont (ex: reset des points dans SAM).
 
 ---
 
-## Pipeline Integration
+## Paramètres et Configuration
+
+| Paramètre | Type | Valeur par défaut | Description |
+| :--- | :--- | :--- | :--- |
+| **`roi_w`** | `int` | `20` | Largeur de la fenêtre ROI d'inspection en pixels. |
+| **`roi_h`** | `int` | `20` | Hauteur de la fenêtre ROI d'inspection en pixels. |
+
+---
+
+## Fonctionnalités Clés
+
+1. **Éditeur de Palette & Assistant de Calibration (Wizard)** :
+   - Ajout, renommage et suppression de classes de couleurs.
+   - Pastilles interactives ouvrant un sélecteur de couleur RGB pour affiner les centroïdes manuellement.
+   - **Assistant Calibration** : invite l'utilisateur à faire `CTRL + Clic` directement sur les zones d'intérêt de l'image pour calibrer chaque classe de la palette successivement.
+   - Sauvegarde sur disque (`palette.json`) protégée par dialogue de confirmation modal.
+
+2. **Sonde ROI en Temps Réel** :
+   - Rectangle d'inspection dynamique suivant le curseur souris affichant la couleur moyenne RGB et la classe la plus proche.
+   - Modes de remplissage configurables : `No Fill`, `Mean RGB`, `Closest Color` avec gestion de l'opacité alpha.
+   - Option **`RT Out`** : diffuse en temps réel la distribution de couleur du ROI sous le curseur vers les graphiques connectés.
+
+3. **Exportation & Découpe d'Échantillons** :
+   - Découpe automatique selon la boîte englobante minimale du masque.
+   - Génération de deux fichiers PNG au format BGRA transparent (`_RAW.png` et `_processed.png`) enregistrés dans le dossier spécifié.
+   - Envoi de la ligne de distribution vers le *Color Aggregator* avec l'identifiant d'échantillon fourni.
+
+4. **Mode Comparaison Rapide** :
+   - Bouton de maintien `Compare` basculant temporairement l'affichage sur la trame originale masquée pour validation visuelle.
+
+---
+
+## Exemple d'Intégration Pipeline
 
 ```mermaid
 graph LR
-    SAM[SAM Interactive] -->|FRAME_MASK_PAIR| Mapper[Color Mapper]
+    SAM[SAM Interactive / Mask] -->|FRAME_MASK_PAIR| Mapper[Color Mapper]
     Mapper -->|FRAME| Viewer[Image Viewer]
     Mapper -->|CMD_DICT| Pie[Color Pie Plot]
     Mapper -->|CMD_DICT| Aggregator[Color Aggregator / CSV]

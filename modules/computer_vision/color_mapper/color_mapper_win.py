@@ -29,12 +29,38 @@ class ColorMapperWin(WindowBase):
     viewer, ROI probing tool, interactive palette editor, and data export pipelines.
     """
 
+    label: str = "Color Mapper"
+    win_width: int = display_scaling.scale(600)
+    win_height: int = display_scaling.scale(650)
+    description: str = (
+        "Color classification and palette mapping with interactive ROI probing and real-time distribution analysis."
+    )
+
+    accepted_input_types: list[type] = [
+        IOTypes.FRAME,
+        IOTypes.FRAME_MASK_PAIR,
+        IOTypes.FOLDER_PATH,
+        IOTypes.CMD_DICT,
+        IOTypes.TEXT,
+    ]
+    outputs: dict[str, type] = {
+        "Mapped Frame": IOTypes.FRAME,
+        "Distribution": IOTypes.CMD_DICT,
+        "CMD": IOTypes.CMD_DICT,
+    }
+
+    roi_w: int = 20
+    roi_h: int = 20
+
+    persistent_fields: list[str] = [
+        "label",
+        "roi_w",
+        "roi_h",
+    ]
+
     folderpath: str | None
     groupname: str | None
-    accepted_input_types: list[IOTypes]
     processor: ColorMapperProcessor
-    roi_w: int
-    roi_h: int
     mouse_x: int
     mouse_y: int
     is_hovering: bool
@@ -45,7 +71,6 @@ class ColorMapperWin(WindowBase):
     _wizard_index: int
     handler_tag: str
     item_handler_tag: str
-    _persistent_fields: list[str]
     _tag_editor_win: str
     _tag_texture: str
     _tag_roi_rect: str
@@ -66,70 +91,45 @@ class ColorMapperWin(WindowBase):
     _tag_save_btn: str
     texture_width: int
     texture_height: int
+    _tex_buffer: np.ndarray | None
     sub_windows: list[str]
-    outputs: dict[str, IOTypes]
-    connections: dict[str, list[Any]]
-    
-    def __init__(self, 
-                 label: str = "Color Mapper",
-                 win_width: int = 600,
-                 win_height: int = 650,
-                 pos: tuple[int, int] = (400, 50),
-                 uuid: str | int | None = None,
-                 outputs: dict[str, IOTypes] | None = None,
-                 visible: bool = True) -> None:
+
+    def __init__(self, **kwargs: Any) -> None:
         """
         Initialize the ColorMapper UI window, registries, and data processor.
         """
-        outputs = outputs or {
-            "Mapped Frame": IOTypes.FRAME,
-            "Distribution": IOTypes.CMD_DICT,
-            "CMD": IOTypes.CMD_DICT,
-        }
-        
-        super().__init__(label=label, pos=pos,
-                         win_width=win_width, win_height=win_height,
-                         uuid=uuid, outputs=outputs, visible=visible)
-        
-        self.outputs = outputs
-        self.connections = {k: [] for k in outputs}
-        
+        super().__init__(**kwargs)
+
+        raw_rw = getattr(self, "roi_w", None)
+        self.roi_w: int = int(raw_rw) if raw_rw is not None else 20
+
+        raw_rh = getattr(self, "roi_h", None)
+        self.roi_h: int = int(raw_rh) if raw_rh is not None else 20
+
         self.folderpath = None
         self.groupname = None
 
-        # Accept Frame and Mask separately or together
-        self.accepted_input_types = [
-            IOTypes.FRAME,
-            IOTypes.FRAME_MASK_PAIR,
-            IOTypes.FOLDER_PATH,
-            IOTypes.CMD_DICT,
-            IOTypes.TEXT,
-        ]
-        
         # Processor integration
         config_path = Path(__file__).parent / "palette.json"
         self.processor = ColorMapperProcessor(config_path)
-        
+
         # UI State
-        self.roi_w = 20
-        self.roi_h = 20
         self.mouse_x = 0
         self.mouse_y = 0
         self.is_hovering = False
         self.selected_key = None
         self._is_comparing = False
-        
+
         keys = list(self.processor.color_map_RGB.keys())
         if keys:
             self.selected_key = keys[0]
-        
-        self._selectable_tags = {} 
+
+        self._selectable_tags = {}
         self._wizard_active = False
         self._wizard_index = 0
         self.handler_tag = f"mapper_handlers_{self.UUID}"
         self.item_handler_tag = f"mapper_item_handlers_{self.UUID}"
-        self._persistent_fields = ["label"]
-        
+
         # UI Tags
         self._tag_editor_win = f"mapper_editor_win_{self.UUID}"
         self._tag_texture = f"mapper_texture_{self.UUID}"
@@ -145,22 +145,22 @@ class ColorMapperWin(WindowBase):
         self._tag_texture_reg = f"mapper_texture_reg_{self.UUID}"
 
         dpg.add_texture_registry(tag=self._tag_texture_reg, show=False)
-        
+
         self._tag_status = f"mapper_status_{self.UUID}"
         self._tag_wizard_msg = f"mapper_wizard_msg_{self.UUID}"
         self._tag_rt_out = f"mapper_rt_out_{self.UUID}"
         self._tag_plot_node = f"mapper_plot_{self.UUID}"
         self._tag_sample_name = f"mapper_sample_name_{self.UUID}"
         self._tag_save_btn = f"mapper_save_btn_{self.UUID}"
-        
+
         self.texture_width = 100
         self.texture_height = 100
-        
+        self._tex_buffer = None
+
         # Register sub-windows for NodeEditor sync (colorization, double-click)
         self.sub_windows = [self._tag_editor_win]
-        
-        self._build_ui()
 
+        self._build_ui()
         self.update_permission()
 
     def update_permission(self) -> None:
@@ -170,18 +170,20 @@ class ColorMapperWin(WindowBase):
         Disables closing the window when running in user mode.
         """
         from core.app_state import app_state
-        is_user = (app_state.mode == "user")
-        
+
+        is_user = app_state.mode == "user"
+
         if dpg.does_item_exist(self.winID):
             dpg.configure_item(self.winID, no_close=is_user)
 
-    def _confirm_save_palette(self, sender: str | int | None = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
+    def _confirm_save_palette(self, sender: str | int | None = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         """
         Display a modal dialog asking for user confirmation before saving the palette to disk.
         """
         s = display_scaling.scale
-        if dpg.does_item_exist("cfg_save_modal"): dpg.delete_item("cfg_save_modal")
-        with dpg.window(label="Confirm Save", modal=True, show=True, tag="cfg_save_modal", no_title_bar=False, pos=(self.pos[0]+50, self.pos[1]+50)):
+        if dpg.does_item_exist("cfg_save_modal"):
+            dpg.delete_item("cfg_save_modal")
+        with dpg.window(label="Confirm Save", modal=True, show=True, tag="cfg_save_modal", no_title_bar=False, pos=(self.pos[0] + 50, self.pos[1] + 50)):
             dpg.add_text("Overwrite existing palette configuration?\nThis action is irreversible.")
             dpg.add_separator()
             btn_w = s(100)
@@ -189,7 +191,7 @@ class ColorMapperWin(WindowBase):
                 dpg.add_button(label="OK", width=btn_w, callback=lambda: [self.processor.save_palette(), dpg.delete_item("cfg_save_modal")])
                 dpg.add_button(label="Cancel", width=btn_w, callback=lambda: dpg.delete_item("cfg_save_modal"))
 
-    def _request_redraw(self, sender: str | int | None = None, app_data: Any = None, user_data: Any = None, *args, **kwargs) -> None:
+    def _request_redraw(self, sender: str | int | None = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         """
         Trigger a re-render/re-evaluation cycle if a frame is loaded.
         """
@@ -200,11 +202,9 @@ class ColorMapperWin(WindowBase):
         """
         Construct the DearPyGui main window layout, controls, plot view, and event handlers.
         """
-        with dpg.window(label=self.label,
-                        width=self.win_width, height=self.win_height,
-                        pos=self.pos, tag=self.winID, show=self.visible):
-            
-            s = display_scaling.scale
+        s = display_scaling.scale
+
+        with self.window():
             
             # -- Row 1: Main Actions & View Modes --
             with dpg.group(horizontal=True):
@@ -236,7 +236,7 @@ class ColorMapperWin(WindowBase):
             # -- Row 3: Save to Color Agregator --
             with dpg.group(horizontal=True):
                 dpg.add_text("Sample name/ID:", color=(150, 200, 255))
-                dpg.add_input_text(hint="e.g. Sample_01", tag=self._tag_sample_name, width=180)
+                dpg.add_input_text(hint="e.g. Sample_01", tag=self._tag_sample_name, width=s(180))
                 dpg.add_button(label="Save to Agregator", tag=self._tag_save_btn,
                                callback=self._save_to_agregator_cb)
                 with dpg.tooltip(dpg.last_item()):
@@ -265,7 +265,7 @@ class ColorMapperWin(WindowBase):
             
         # -- Secondary Window (Palette Editor) --
         with dpg.window(label=f"Palette Editor & Calibration [{self.label}]", 
-                        width=s(300), height=s(400), show=False, 
+                        width=s(320), height=s(420), show=False, 
                         tag=self._tag_editor_win, pos=(self.pos[0]+60, self.pos[1]+60)):
                         
             # -- Row 0: Instructions --
@@ -299,6 +299,11 @@ class ColorMapperWin(WindowBase):
             return
         self._is_closing = True
 
+        if hasattr(self, "_tag_editor_win") and self._tag_editor_win and dpg.does_item_exist(self._tag_editor_win):
+            try:
+                dpg.delete_item(self._tag_editor_win)
+            except Exception:
+                pass
         if hasattr(self, "item_handler_tag") and self.item_handler_tag and dpg.does_item_exist(self.item_handler_tag):
             try:
                 dpg.delete_item(self.item_handler_tag)
@@ -315,7 +320,11 @@ class ColorMapperWin(WindowBase):
             except Exception:
                 pass
         if hasattr(self, "processor") and self.processor:
-            self.processor.reset_inputs()
+            try:
+                self.processor.reset_inputs()
+            except Exception:
+                pass
+        super().on_close()
 
     def close(self) -> None:
         """Clean up and unregister the window from the registry."""
@@ -496,10 +505,9 @@ class ColorMapperWin(WindowBase):
         
         self.texture_width = width
         self.texture_height = height
+        self._tex_buffer = np.zeros(height * width * 4, dtype=np.float32)
         
-        img = np.zeros((height, width, 4), dtype=np.uint8)
-        
-        dpg.add_dynamic_texture(width, height, self._convert_to_dpg(img), tag=self._tag_texture, parent=self._tag_texture_reg)
+        dpg.add_dynamic_texture(width, height, self._tex_buffer, tag=self._tag_texture, parent=self._tag_texture_reg)
         
         plot_tag = dpg.add_plot(tag=self._tag_plot_node, no_menus=True, no_title=True, width=-1, height=-1, parent=self._plot_parent)
         xaxis = dpg.add_plot_axis(dpg.mvXAxis, no_gridlines=True, no_tick_labels=True, no_tick_marks=True, parent=plot_tag)
@@ -514,7 +522,11 @@ class ColorMapperWin(WindowBase):
         Convert a BGR/BGRA numpy image to flattened float32 RGBA format expected by DearPyGui raw textures.
         """
         rgba = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
-        return (rgba.ravel().astype(np.float32)) / 255.0
+        flat = rgba.ravel()
+        if self._tex_buffer is None or self._tex_buffer.size != flat.size:
+            self._tex_buffer = np.empty(flat.size, dtype=np.float32)
+        np.multiply(flat, 1.0 / 255.0, out=self._tex_buffer, dtype=np.float32)
+        return self._tex_buffer
 
     def _on_mouse_move(self, sender: str | int | None, data: Any, *args, **kwargs) -> None:
         """
@@ -522,12 +534,15 @@ class ColorMapperWin(WindowBase):
         """
         try:
             if dpg.does_item_exist(self._tag_plot_node) and dpg.is_item_hovered(self._tag_plot_node):
-                self.is_hovering = True
                 mpos = dpg.get_plot_mouse_pos()
-                self.mouse_x = int(mpos[0])
-                self.mouse_y = int(mpos[1])
-                self._update_roi_overlay()
-            else:
+                mx = int(mpos[0])
+                my = int(mpos[1])
+                if not self.is_hovering or mx != self.mouse_x or my != self.mouse_y:
+                    self.is_hovering = True
+                    self.mouse_x = mx
+                    self.mouse_y = my
+                    self._update_roi_overlay()
+            elif self.is_hovering:
                 self.is_hovering = False
                 self._update_roi_overlay()
         except Exception:
@@ -682,6 +697,9 @@ class ColorMapperWin(WindowBase):
         """
         Utility to send distribution data payload to all connected downstream modules.
         """
+        targets = self.connections.get("Distribution")
+        if not targets:
+            return
         pie_data = {
             "action": "plot_pie",
             "title": f"Color Distribution {title_suffix}",
@@ -689,7 +707,7 @@ class ColorMapperWin(WindowBase):
             "save": save,
             "sample_name": sample_name,
         }
-        for module in self.connections.get("Distribution", []):
+        for module in targets:
             module.input_cb(data=pie_data, data_type=IOTypes.CMD_DICT)
 
     def _save_to_agregator_cb(self, *args, **kwargs) -> None:
@@ -726,9 +744,7 @@ class ColorMapperWin(WindowBase):
         if not missing_requirements:
             try:
                 import os
-                mask = self.processor.mask
-                if mask.shape[:2] != self.processor.frame.shape[:2]:
-                    mask = cv2.resize(mask, (self.processor.frame.shape[1], self.processor.frame.shape[0]), interpolation=cv2.INTER_NEAREST)
+                mask = self.processor.get_aligned_mask()
                 
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 valid_contours = [c for c in contours if cv2.contourArea(c) > 0]
@@ -741,20 +757,20 @@ class ColorMapperWin(WindowBase):
                     mapped_frame = getattr(self.processor, '_cached_mapped_frame', None)
                     if mapped_frame is None:
                         mapped_frame = raw_frame
+                    c_mask = mask[y:y+h, x:x+w] <= 127
                         
-                    def crop_and_transparent(img_bgr, roi_mask, cx, cy, cw, ch):
-                        if len(img_bgr.shape) == 3 and img_bgr.shape[2] == 3:
-                            img_bgra = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2BGRA)
+                    def crop_and_transparent(img_bgr, outside_mask, cx, cy, cw, ch):
+                        roi = img_bgr[cy:cy+ch, cx:cx+cw]
+                        if len(roi.shape) == 3 and roi.shape[2] == 3:
+                            cropped = cv2.cvtColor(roi, cv2.COLOR_BGR2BGRA)
                         else:
-                            img_bgra = img_bgr.copy()
-                        cropped = img_bgra[cy:cy+ch, cx:cx+cw].copy()
-                        c_mask = roi_mask[cy:cy+ch, cx:cx+cw]
+                            cropped = roi.copy()
                         # Set fully black (0,0,0) AND fully transparent for pixels outside mask
-                        cropped[c_mask <= 127] = [0, 0, 0, 0]
+                        cropped[outside_mask] = [0, 0, 0, 0]
                         return cropped
 
-                    raw_cropped = crop_and_transparent(raw_frame, mask, x, y, w, h)
-                    mapped_cropped = crop_and_transparent(mapped_frame, mask, x, y, w, h)
+                    raw_cropped = crop_and_transparent(raw_frame, c_mask, x, y, w, h)
+                    mapped_cropped = crop_and_transparent(mapped_frame, c_mask, x, y, w, h)
                     
                     raw_name = f"{base_name}{sample_str}_RAW.png"
                     proc_name = f"{base_name}{sample_str}_processed.png"
@@ -787,10 +803,14 @@ class ColorMapperWin(WindowBase):
             if hasattr(module, 'input_cb'):
                 module.input_cb(data={"clear": True, "reset_points": True}, data_type=IOTypes.CMD_DICT)
 
-    def input_cb(self, data: Any, *args, **kwargs) -> None:
+    def input_cb(self, data: Any = None, *args: Any, **kwargs: Any) -> None:
         """
         Entry point receiving data from upstream nodes (Frames, Masks, Folder Paths, Commands).
         """
+        if data is None and "data" in kwargs:
+            data = kwargs["data"]
+        elif data is None and args:
+            data = args[0]
         data_type = kwargs.get("data_type")
         if data_type == IOTypes.FOLDER_PATH:
             self.folderpath = data
@@ -814,13 +834,9 @@ class ColorMapperWin(WindowBase):
             elif isinstance(data[0], np.ndarray) and not isinstance(data[1], np.ndarray):
                 data = data[0]
 
-        data_type = kwargs.get("data_type")
         is_pair = data_type == IOTypes.FRAME_MASK_PAIR or (isinstance(data, tuple) and len(data) == 2 and isinstance(data[0], np.ndarray) and isinstance(data[1], np.ndarray))
         
         if self.processor.ingest_data(data, is_pair=is_pair):
-            status = []
-            if self.processor.frame is not None: status.append("Frame [OK]")
-            if self.processor.mask is not None: status.append("Mask [OK]")
             # Always call _process_all so the viewer updates with the latest frame.
             # The processor internally decides if it needs heavy mapping or not.
             self._process_all()
@@ -858,7 +874,7 @@ class ColorMapperWin(WindowBase):
             self.processor.last_distribution = distribution
 
             # Emit CMD_DICT for the Plotter (Only if not bypassed)
-            if not dpg.get_value(self._tag_show_original):
+            if not show_orig:
                 self._emit_distribution(distribution, title_suffix=f"(Full Frame {self.UUID})")
             
         except Exception as e:

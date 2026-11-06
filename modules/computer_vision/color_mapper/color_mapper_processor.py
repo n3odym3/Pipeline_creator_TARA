@@ -25,11 +25,16 @@ class ColorMapperProcessor:
     color_map_RGB: dict[str, tuple[int, int, int]]
     palette_keys: list[str]
     palette_rgb: np.ndarray | None
+    palette_bgr: np.ndarray | None
     palette_lab: np.ndarray | None
+    _palette_lab_T: np.ndarray | None
+    _palette_half_norm_sq: np.ndarray | None
     frame: np.ndarray | None
     mask: np.ndarray | None
+    _aligned_mask: np.ndarray | None
     _cached_mapped_frame: np.ndarray | None
     _cached_preview_frame: np.ndarray | None
+    _cached_index_map: np.ndarray | None
     _cached_distribution: dict[str, dict]
     _needs_remapping: bool
     last_distribution: dict[str, dict]
@@ -43,14 +48,19 @@ class ColorMapperProcessor:
         self.color_map_RGB = {}
         self.palette_keys = []
         self.palette_rgb = None
+        self.palette_bgr = None
         self.palette_lab = None
+        self._palette_lab_T = None
+        self._palette_half_norm_sq = None
         
         self.frame = None
         self.mask = None
+        self._aligned_mask = None
         
         # Caching
         self._cached_mapped_frame = None
         self._cached_preview_frame = None
+        self._cached_index_map = None
         self._cached_distribution = {}
         self._needs_remapping = True
         self.last_distribution = {}
@@ -107,11 +117,19 @@ class ColorMapperProcessor:
         self.palette_keys = list(self.color_map_RGB.keys())
         if not self.palette_keys:
             self.palette_rgb = None
+            self.palette_bgr = None
             self.palette_lab = None
+            self._palette_lab_T = None
+            self._palette_half_norm_sq = None
+            self._cached_index_map = None
             return
             
         self.palette_rgb = np.array([self.color_map_RGB[k] for k in self.palette_keys], dtype=np.uint8)
+        self.palette_bgr = self.palette_rgb[:, ::-1].copy()
         self.palette_lab = cv2.cvtColor(self.palette_rgb[None, :, :], cv2.COLOR_RGB2Lab)[0].astype(np.float32)
+        self._palette_lab_T = np.ascontiguousarray(self.palette_lab.T)
+        self._palette_half_norm_sq = 0.5 * np.sum(self.palette_lab * self.palette_lab, axis=1)
+        self._cached_index_map = None
         self._needs_remapping = True
 
     def add_key(self, new_name: str) -> bool:
@@ -159,9 +177,26 @@ class ColorMapperProcessor:
         """
         self.frame = None
         self.mask = None
+        self._aligned_mask = None
         self._cached_mapped_frame = None
         self._cached_preview_frame = None
+        self._cached_index_map = None
         self._needs_remapping = True
+
+    def get_aligned_mask(self) -> np.ndarray | None:
+        """
+        Return the active mask aligned to the current frame's spatial dimensions, caching the resized result.
+        """
+        if self.mask is None or self.frame is None:
+            return self.mask
+        fh, fw = self.frame.shape[:2]
+        if self._aligned_mask is not None and self._aligned_mask.shape[:2] == (fh, fw):
+            return self._aligned_mask
+        if self.mask.shape[:2] == (fh, fw):
+            self._aligned_mask = self.mask
+        else:
+            self._aligned_mask = cv2.resize(self.mask, (fw, fh), interpolation=cv2.INTER_NEAREST)
+        return self._aligned_mask
 
     def ingest_data(self, data: np.ndarray | tuple[np.ndarray, np.ndarray], is_pair: bool = False) -> bool:
         """
@@ -173,6 +208,8 @@ class ColorMapperProcessor:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             self.frame = frame
             self.mask = data[1]
+            self._aligned_mask = None
+            self._cached_index_map = None
             self._needs_remapping = True # A pair triggers automatic update
             return True
             
@@ -185,21 +222,26 @@ class ColorMapperProcessor:
         elif len(data.shape) == 3:
             if data.shape[2] == 1:
                 is_mask = True
-            elif np.all(data[:, :, 0] == data[:, :, 1]) and np.all(data[:, :, 1] == data[:, :, 2]):
-                is_mask = True
+            elif data.size > 0 and data[0, 0, 0] == data[0, 0, 1] == data[0, 0, 2]:
+                if np.array_equal(data[:, :, 0], data[:, :, 1]) and np.array_equal(data[:, :, 1], data[:, :, 2]):
+                    is_mask = True
         
         if is_mask:
             self.mask = data[:,:,0] if len(data.shape) == 3 else data
+            self._aligned_mask = None
+            self._cached_index_map = None
             self._needs_remapping = True # New mask triggers update
         else:
             frame = data
             if len(frame.shape) == 3 and frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             self.frame = frame
+            self._aligned_mask = None
             # New frame arrives: we MUST clear the previous results
             # so the user sees the live original frame instead of a static cached map.
             self._cached_mapped_frame = None
             self._cached_preview_frame = None
+            self._cached_index_map = None
             # NO automatic needs_remapping on single frame
             
         return True
@@ -210,6 +252,8 @@ class ColorMapperProcessor:
         """
         if self.frame is not None:
             self.mask = np.full(self.frame.shape[:2], 255, dtype=np.uint8)
+            self._aligned_mask = self.mask
+            self._cached_index_map = None
             self._needs_remapping = True
             return True
         return False
@@ -228,59 +272,55 @@ class ColorMapperProcessor:
         if img_bgr.shape[2] == 4:
             img_bgr = cv2.cvtColor(img_bgr, cv2.COLOR_BGRA2BGR)
             
-        distribution = {}
-        
         # 1. Update the heavy mapping cache ONLY if needed and possible
         if self._needs_remapping and self.mask is not None:
-            mask_data = self.mask
-            if mask_data.shape[:2] != img_bgr.shape[:2]:
-                mask_data = cv2.resize(mask_data, (img_bgr.shape[1], img_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
-            mask_indices = np.where(mask_data > 127)
+            mask_data = self.get_aligned_mask()
+            mask_bool = mask_data > 127
+            pixels_bgr = img_bgr[mask_bool]
+            total_pixels = len(pixels_bgr)
 
-            if mask_indices[0].size > 0:
-                # Perform HEAVY MAPPING
-                pixels_bgr = img_bgr[mask_indices[0], mask_indices[1]]
-                unique_bgr, inverse_indices = np.unique(pixels_bgr, axis=0, return_inverse=True)
-                unique_rgb = cv2.cvtColor(unique_bgr[None, :, :], cv2.COLOR_BGR2RGB)[0]
+            if total_pixels > 0 and self.palette_lab is not None:
+                # Perform HEAVY MAPPING via BLAS SGEMM
+                pixels_lab = cv2.cvtColor(pixels_bgr[None, :, :], cv2.COLOR_BGR2Lab)[0].astype(np.float32)
+                scores = pixels_lab @ self._palette_lab_T
+                scores -= self._palette_half_norm_sq
+                closest_indices = np.argmax(scores, axis=1)
                 
-                pixels_lab = cv2.cvtColor(unique_rgb[None, :, :], cv2.COLOR_RGB2Lab)[0].astype(np.float32)
-                diff = pixels_lab[:, None, :] - self.palette_lab[None, :, :]
-                dist_sq = np.sum(diff**2, axis=-1)
-                closest_unique = np.argmin(dist_sq, axis=-1)
-                closest_indices = closest_unique[inverse_indices]
-                
-                mapped_pixels_rgb = self.palette_rgb[closest_indices]
-                mapped_pixels_bgr = cv2.cvtColor(mapped_pixels_rgb[None, :, :], cv2.COLOR_RGB2BGR)[0]
+                mapped_pixels_bgr = self.palette_bgr[closest_indices]
                 
                 cached_frame = np.zeros_like(img_bgr)
-                cached_frame[mask_indices[0], mask_indices[1]] = mapped_pixels_bgr
+                cached_frame[mask_bool] = mapped_pixels_bgr
+                
+                index_map = np.full(img_bgr.shape[:2], -1, dtype=np.int16)
+                index_map[mask_bool] = closest_indices
+                self._cached_index_map = index_map
                 
                 counts = np.bincount(closest_indices, minlength=len(self.palette_keys))
                 cached_dist = {}
-                total_pixels = mask_indices[0].size
                 for i, name in enumerate(self.palette_keys):
                     count = counts[i]
                     cached_dist[name] = {
                         "count": int(count),
-                        "percent": float(count / total_pixels * 100) if total_pixels > 0 else 0.0,
+                        "percent": float(count / total_pixels * 100),
                         "color": [int(c) for c in self.palette_rgb[i]]
                     }
                 
                 # ... and also cache the MASKED ORIGINAL for the preview mode
                 preview_frame = np.zeros_like(img_bgr)
-                preview_frame[mask_indices[0], mask_indices[1]] = img_bgr[mask_indices[0], mask_indices[1]]
+                preview_frame[mask_bool] = pixels_bgr
                 
                 self._cached_mapped_frame = cached_frame
                 self._cached_preview_frame = preview_frame
                 
                 # Add Best Match
                 best_idx = np.argmax(counts)
-                cached_dist["best_match"] = self.palette_keys[best_idx] if total_pixels > 0 else "None"
+                cached_dist["best_match"] = self.palette_keys[best_idx]
                 
                 self._cached_distribution = cached_dist
             else:
                 self._cached_mapped_frame = None 
                 self._cached_preview_frame = img_bgr.copy()
+                self._cached_index_map = None
                 self._cached_distribution = {}
             
             self._needs_remapping = False
@@ -317,15 +357,35 @@ class ColorMapperProcessor:
         h, w = img_bgr.shape[:2]
         x1, x2 = max(0, x1), min(w, x2)
         y1, y2 = max(0, y1), min(h, y2)
+        if x2 <= x1 or y2 <= y1:
+            return {}
+
+        # Fast path: reuse cached 2D palette index map when available
+        if use_mask and self.mask is not None and not self._needs_remapping and self._cached_index_map is not None:
+            idx_roi = self._cached_index_map[y1:y2, x1:x2]
+            valid_indices = idx_roi[idx_roi >= 0]
+            if valid_indices.size == 0:
+                return {}
+            counts = np.bincount(valid_indices, minlength=len(self.palette_keys))
+            total_pixels = valid_indices.size
+            roi_dist = {}
+            for i, name in enumerate(self.palette_keys):
+                count = counts[i]
+                roi_dist[name] = {
+                    "count": int(count),
+                    "percent": float(count / total_pixels * 100),
+                    "color": [int(c) for c in self.palette_rgb[i]]
+                }
+            roi_dist["best_match"] = self.palette_keys[int(np.argmax(counts))]
+            return roi_dist
         
         roi = img_bgr[y1:y2, x1:x2]
         if roi.size == 0:
             return {}
             
         if use_mask and self.mask is not None:
-            mask_roi = self.mask[y1:y2, x1:x2]
-            if mask_roi.shape[:2] != roi.shape[:2]:
-                mask_roi = cv2.resize(mask_roi, (roi.shape[1], roi.shape[0]), interpolation=cv2.INTER_NEAREST)
+            mask_data = self.get_aligned_mask()
+            mask_roi = mask_data[y1:y2, x1:x2]
             roi_pixels = roi[mask_roi > 127]
             if roi_pixels.size == 0: return {}
         else:
@@ -343,8 +403,9 @@ class ColorMapperProcessor:
             if self.palette_lab.shape[1] != 3:
                 return {}
                 
-            dists = np.linalg.norm(roi_lab[:, np.newaxis] - self.palette_lab, axis=2)
-            closest_indices = np.argmin(dists, axis=1)
+            scores = roi_lab @ self._palette_lab_T
+            scores -= self._palette_half_norm_sq
+            closest_indices = np.argmax(scores, axis=1)
             
             counts = np.bincount(closest_indices, minlength=len(self.palette_lab))
             
@@ -375,9 +436,7 @@ class ColorMapperProcessor:
             
         roi = self.frame[y1:y2, x1:x2]
         if use_mask and self.mask is not None:
-            mask_data = self.mask
-            if mask_data.shape[:2] != self.frame.shape[:2]:
-                mask_data = cv2.resize(mask_data, (self.frame.shape[1], self.frame.shape[0]), interpolation=cv2.INTER_NEAREST)
+            mask_data = self.get_aligned_mask()
             roi_mask = mask_data[y1:y2, x1:x2]
             valid_pixels = roi[roi_mask > 127]
         else:
