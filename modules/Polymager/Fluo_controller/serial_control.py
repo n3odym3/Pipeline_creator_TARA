@@ -125,8 +125,9 @@ class SerialControl:
                 return None
             
             try:
-                if self.ser.in_waiting > 0:
-                    data = self.ser.read(self.ser.in_waiting)
+                waiting = self.ser.in_waiting
+                if waiting > 0:
+                    data = self.ser.read(waiting)
                     try:
                         return data.decode('utf-8', errors='replace')
                     except (UnicodeDecodeError, ValueError):

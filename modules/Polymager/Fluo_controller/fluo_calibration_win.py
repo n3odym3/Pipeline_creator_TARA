@@ -40,8 +40,8 @@ class CalibrationModelFit:
         if len(x_data) < 2 or len(y_data) < 2:
             return False, "Need at least 2 points for fitting", 0.0, None, None, {}
 
-        x_arr = np.array(x_data, dtype=float)
-        y_arr = np.array(y_data, dtype=float)
+        x_arr = np.asarray(x_data, dtype=float)
+        y_arr = np.asarray(y_data, dtype=float)
 
         try:
             if model_type == "power":
@@ -55,10 +55,10 @@ class CalibrationModelFit:
                 b = float(b)
 
                 def forward_fn(x: Any) -> Any:
-                    return a * np.power(np.maximum(0.0, np.array(x, dtype=float)), b)
+                    return a * np.power(np.maximum(0.0, np.asarray(x, dtype=float)), b)
 
                 def inverse_fn(y: Any) -> Any:
-                    return np.power(np.maximum(1e-9, np.array(y, dtype=float)) / max(1e-9, a), 1.0 / max(1e-9, b))
+                    return np.power(np.maximum(1e-9, np.asarray(y, dtype=float)) / max(1e-9, a), 1.0 / max(1e-9, b))
 
                 eq_str = f"I = {a:.4f} × X^{b:.4f}"
                 params = {"type": "power", "a": a, "b": b}
@@ -73,11 +73,11 @@ class CalibrationModelFit:
                 b = float(b)
 
                 def forward_fn(x: Any) -> Any:
-                    return a * np.exp(b * np.array(x, dtype=float))
+                    return a * np.exp(b * np.asarray(x, dtype=float))
 
                 def inverse_fn(y: Any) -> Any:
                     denom = b if abs(b) > 1e-9 else 1.0
-                    return np.log(np.maximum(1e-9, np.array(y, dtype=float)) / max(1e-9, a)) / denom
+                    return np.log(np.maximum(1e-9, np.asarray(y, dtype=float)) / max(1e-9, a)) / denom
 
                 eq_str = f"I = {a:.4f} × exp({b:.4f} × X)"
                 params = {"type": "exponential", "a": a, "b": b}
@@ -101,10 +101,10 @@ class CalibrationModelFit:
                         grid_y_mono[i] = grid_y_mono[i - 1] + 1e-7
 
                 def forward_fn(x: Any) -> Any:
-                    return np.polyval(coeffs, np.array(x, dtype=float))
+                    return np.polyval(coeffs, np.asarray(x, dtype=float))
 
                 def inverse_fn(y: Any) -> Any:
-                    return np.interp(np.array(y, dtype=float), grid_y_mono, grid_x, left=x_min, right=x_max)
+                    return np.interp(np.asarray(y, dtype=float), grid_y_mono, grid_x, left=x_min, right=x_max)
 
                 terms = []
                 for i, c in enumerate(coeffs):
@@ -127,10 +127,11 @@ class CalibrationModelFit:
                 a, b = float(a), float(b)
 
                 def forward_fn(x: Any) -> Any:
-                    return a * np.array(x, dtype=float) + b
+                    return a * np.asarray(x, dtype=float) + b
 
                 def inverse_fn(y: Any) -> Any:
-                    return (np.array(y, dtype=float) - b) / a if abs(a) > 1e-9 else np.zeros_like(y)
+                    y_a = np.asarray(y, dtype=float)
+                    return (y_a - b) / a if abs(a) > 1e-9 else np.zeros_like(y_a)
 
                 sign = "+" if b >= 0 else "-"
                 eq_str = f"I = {a:.4f} × X {sign} {abs(b):.2f}"
@@ -167,6 +168,7 @@ class FluoCalibrationWin:
         on_calibration_saved: Optional[Callable[[str], None]] = None,
         parent_uuid: Optional[int | str] = None,
         initial_cal_path: Optional[str] = None,
+        initial_cal_data: Optional[dict] = None,
         show: bool = True,
     ) -> None:
         self.serial = serial
@@ -181,6 +183,9 @@ class FluoCalibrationWin:
 
         self.high_cal_steps: List[int] = list(self.DEFAULT_HIGH_ADIM)
         self.high_cal_data: Dict[int, Optional[float]] = {adim: None for adim in self.high_cal_steps}
+
+        self._built_low_steps: List[int] = []
+        self._built_high_steps: List[int] = []
 
         # Model Regression Selection
         self.low_model_type: str = "power"  # "power", "linear", "exponential", "polynomial"
@@ -198,8 +203,10 @@ class FluoCalibrationWin:
             if os.path.exists(default_path):
                 initial_cal_path = default_path
 
-        # Populate internal state from initial_cal_path if present
-        if initial_cal_path and os.path.exists(initial_cal_path):
+        # Populate internal state from initial_cal_data or initial_cal_path if present
+        if initial_cal_data is not None:
+            self._apply_calibration_dict(initial_cal_data, file_path=initial_cal_path)
+        elif initial_cal_path and os.path.exists(initial_cal_path):
             try:
                 with open(initial_cal_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -249,7 +256,8 @@ class FluoCalibrationWin:
         self.high_degree_label_tag = f"fluo_calib_high_deg_lbl_{self.uuid}"
         self.high_degree_input_tag = f"fluo_calib_high_deg_inp_{self.uuid}"
 
-        self._build_ui(show=show)
+        if show:
+            self._build_ui(show=True)
 
     def show(self) -> None:
         """Show and bring the calibration window to the front."""
@@ -260,9 +268,12 @@ class FluoCalibrationWin:
             self._set_active_step(self.current_mode, self.current_step_idx)
         else:
             self._build_ui(show=True)
+            dpg.focus_item(self.win_tag)
 
     def _build_ui(self, show: bool = True) -> None:
         s = display_scaling.scale
+        self._built_low_steps = []
+        self._built_high_steps = []
 
         if dpg.does_item_exist(self.win_tag):
             dpg.delete_item(self.win_tag)
@@ -567,14 +578,14 @@ class FluoCalibrationWin:
 
         self._update_step_ui()
 
-    def _on_row_clicked(self, sender: Any, app_data: Any, user_data: Any = None, *args: Any) -> None:
+    def _on_row_clicked(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         """Called when a table row is clicked."""
         if not user_data:
             return
         mode, idx = user_data
         self._set_active_step(mode, idx)
 
-    def _on_tab_changed(self, sender: Any, app_data: Any, *args: Any) -> None:
+    def _on_tab_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         """Called when user switches tabs in the tab bar."""
         if app_data == self.tab_low_tag:
             if self.current_mode != "low_cal":
@@ -640,61 +651,83 @@ class FluoCalibrationWin:
             )
 
     def _refresh_tables(self) -> None:
-        """Repopulates the data tables for low and high calibration regimes with clickable selectable rows."""
+        """Repopulates or updates the data tables for low and high calibration regimes with clickable selectable rows."""
         # Low table
         if dpg.does_item_exist(self.low_table_tag):
-            children = dpg.get_item_children(self.low_table_tag, 1)
-            if children:
-                for child in children:
-                    dpg.delete_item(child)
+            if self._built_low_steps != self.low_cal_steps:
+                children = dpg.get_item_children(self.low_table_tag, 1)
+                if children:
+                    for child in children:
+                        dpg.delete_item(child)
 
-            for i, pwm in enumerate(self.low_cal_steps):
-                val = self.low_cal_data.get(pwm)
-                val_str = f"{val:.2f}" if val is not None else "---"
-                is_active = (self.current_mode == "low_cal" and self.current_step_idx == i)
-                sel_tag = f"low_sel_{self.uuid}_{i}"
-                with dpg.table_row(parent=self.low_table_tag):
-                    dpg.add_selectable(
-                        label=f"#{i+1}",
-                        default_value=is_active,
-                        tag=sel_tag,
-                        span_columns=True,
-                        callback=self._on_row_clicked,
-                        user_data=("low_cal", i),
-                    )
-                    dpg.add_text(str(pwm))
-                    dpg.add_text("512")
-                    dpg.add_text(val_str, color=(100, 255, 100) if val is not None else (150, 150, 150))
+                for i, pwm in enumerate(self.low_cal_steps):
+                    val = self.low_cal_data.get(pwm)
+                    val_str = f"{val:.2f}" if val is not None else "---"
+                    is_active = (self.current_mode == "low_cal" and self.current_step_idx == i)
+                    sel_tag = f"low_sel_{self.uuid}_{i}"
+                    val_tag = f"low_val_{self.uuid}_{i}"
+                    with dpg.table_row(parent=self.low_table_tag):
+                        dpg.add_selectable(
+                            label=f"#{i+1}",
+                            default_value=is_active,
+                            tag=sel_tag,
+                            span_columns=True,
+                            callback=self._on_row_clicked,
+                            user_data=("low_cal", i),
+                        )
+                        dpg.add_text(str(pwm))
+                        dpg.add_text("512")
+                        dpg.add_text(val_str, tag=val_tag, color=(100, 255, 100) if val is not None else (150, 150, 150))
+                self._built_low_steps = list(self.low_cal_steps)
+            else:
+                for i, pwm in enumerate(self.low_cal_steps):
+                    val = self.low_cal_data.get(pwm)
+                    val_str = f"{val:.2f}" if val is not None else "---"
+                    val_tag = f"low_val_{self.uuid}_{i}"
+                    if dpg.does_item_exist(val_tag):
+                        dpg.set_value(val_tag, val_str)
+                        dpg.configure_item(val_tag, color=(100, 255, 100) if val is not None else (150, 150, 150))
 
         # High table
         if dpg.does_item_exist(self.high_table_tag):
-            children = dpg.get_item_children(self.high_table_tag, 1)
-            if children:
-                for child in children:
-                    dpg.delete_item(child)
+            if self._built_high_steps != self.high_cal_steps:
+                children = dpg.get_item_children(self.high_table_tag, 1)
+                if children:
+                    for child in children:
+                        dpg.delete_item(child)
 
-            for i, adim in enumerate(self.high_cal_steps):
-                val = self.high_cal_data.get(adim)
-                val_str = f"{val:.2f}" if val is not None else "---"
-                is_active = (self.current_mode == "high_cal" and self.current_step_idx == i)
-                sel_tag = f"high_sel_{self.uuid}_{i}"
-                with dpg.table_row(parent=self.high_table_tag):
-                    dpg.add_selectable(
-                        label=f"#{i+1}",
-                        default_value=is_active,
-                        tag=sel_tag,
-                        span_columns=True,
-                        callback=self._on_row_clicked,
-                        user_data=("high_cal", i),
-                    )
-                    dpg.add_text(str(adim))
-                    dpg.add_text("512")
-                    dpg.add_text(val_str, color=(100, 255, 100) if val is not None else (150, 150, 150))
+                for i, adim in enumerate(self.high_cal_steps):
+                    val = self.high_cal_data.get(adim)
+                    val_str = f"{val:.2f}" if val is not None else "---"
+                    is_active = (self.current_mode == "high_cal" and self.current_step_idx == i)
+                    sel_tag = f"high_sel_{self.uuid}_{i}"
+                    val_tag = f"high_val_{self.uuid}_{i}"
+                    with dpg.table_row(parent=self.high_table_tag):
+                        dpg.add_selectable(
+                            label=f"#{i+1}",
+                            default_value=is_active,
+                            tag=sel_tag,
+                            span_columns=True,
+                            callback=self._on_row_clicked,
+                            user_data=("high_cal", i),
+                        )
+                        dpg.add_text(str(adim))
+                        dpg.add_text("512")
+                        dpg.add_text(val_str, tag=val_tag, color=(100, 255, 100) if val is not None else (150, 150, 150))
+                self._built_high_steps = list(self.high_cal_steps)
+            else:
+                for i, adim in enumerate(self.high_cal_steps):
+                    val = self.high_cal_data.get(adim)
+                    val_str = f"{val:.2f}" if val is not None else "---"
+                    val_tag = f"high_val_{self.uuid}_{i}"
+                    if dpg.does_item_exist(val_tag):
+                        dpg.set_value(val_tag, val_str)
+                        dpg.configure_item(val_tag, color=(100, 255, 100) if val is not None else (150, 150, 150))
 
         # Update live model plots
         self._refresh_plots()
 
-    def _on_low_model_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
+    def _on_low_model_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         val = app_data if app_data is not None else dpg.get_value(self.low_model_combo_tag)
         self.low_model_type = CalibrationModelFit.LABEL_TO_MODEL_TYPE.get(val, "power")
         is_poly = (self.low_model_type == "polynomial")
@@ -704,13 +737,13 @@ class FluoCalibrationWin:
             dpg.configure_item(self.low_degree_input_tag, show=is_poly)
         self._refresh_plots()
 
-    def _on_low_degree_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
+    def _on_low_degree_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         val = app_data if app_data is not None else dpg.get_value(self.low_degree_input_tag)
         if val is not None:
             self.low_poly_degree = max(2, min(5, int(val)))
             self._refresh_plots()
 
-    def _on_high_model_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
+    def _on_high_model_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         val = app_data if app_data is not None else dpg.get_value(self.high_model_combo_tag)
         self.high_model_type = CalibrationModelFit.LABEL_TO_MODEL_TYPE.get(val, "linear")
         is_poly = (self.high_model_type == "polynomial")
@@ -720,7 +753,7 @@ class FluoCalibrationWin:
             dpg.configure_item(self.high_degree_input_tag, show=is_poly)
         self._refresh_plots()
 
-    def _on_high_degree_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
+    def _on_high_degree_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         val = app_data if app_data is not None else dpg.get_value(self.high_degree_input_tag)
         if val is not None:
             self.high_poly_degree = max(2, min(5, int(val)))
@@ -797,8 +830,8 @@ class FluoCalibrationWin:
                     y_curve = fwd_low(x_curve)
 
                     l_tag = dpg.add_line_series(
-                        list(x_curve),
-                        list(y_curve),
+                        x_curve.tolist(),
+                        y_curve.tolist(),
                         label="Fit Curve",
                         parent=self.low_yaxis_tag,
                     )
@@ -857,8 +890,8 @@ class FluoCalibrationWin:
                     y_curve = fwd_high(x_curve)
 
                     l_tag = dpg.add_line_series(
-                        list(x_curve),
-                        list(y_curve),
+                        x_curve.tolist(),
+                        y_curve.tolist(),
                         label="Fit Curve",
                         parent=self.high_yaxis_tag,
                     )
@@ -954,8 +987,8 @@ class FluoCalibrationWin:
                 y_low_pwm = np.clip(inv_low(x_low), 0.0, 512.0)
                 y_low_pct = (y_low_pwm / 512.0) * 100.0
                 l_low_tag = dpg.add_line_series(
-                    list(x_low),
-                    list(y_low_pct),
+                    x_low.tolist(),
+                    y_low_pct.tolist(),
                     label=f"Low {self.low_model_type.title()} Model [<= {int(thresh_val)} µE]",
                     parent=self.comb_yaxis_tag,
                 )
@@ -973,8 +1006,8 @@ class FluoCalibrationWin:
                 )
 
                 l_high_tag = dpg.add_line_series(
-                    list(x_high),
-                    list(y_high_pct),
+                    x_high.tolist(),
+                    y_high_pct.tolist(),
                     label=label_high_curve,
                     parent=self.comb_yaxis_tag,
                 )
@@ -1006,7 +1039,7 @@ class FluoCalibrationWin:
                 dpg.fit_axis_data(self.comb_xaxis_tag)
                 dpg.fit_axis_data(self.comb_yaxis_tag)
 
-    def _on_thresh_input_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
+    def _on_thresh_input_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         val = app_data if app_data is not None else dpg.get_value(self.thresh_input_tag)
         if val is not None:
             try:
@@ -1017,7 +1050,7 @@ class FluoCalibrationWin:
             except (ValueError, TypeError):
                 pass
 
-    def _on_drag_line_changed(self, sender: Any = None, app_data: Any = None, *args: Any) -> None:
+    def _on_drag_line_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         val = dpg.get_value(self.drag_line_tag) if dpg.does_item_exist(self.drag_line_tag) else app_data
         if val is not None:
             new_thresh = max(1, int(round(float(val))))
@@ -1026,7 +1059,7 @@ class FluoCalibrationWin:
                 dpg.set_value(self.thresh_input_tag, new_thresh)
             self._refresh_plots()
 
-    def _on_prev_step(self, *args: Any) -> None:
+    def _on_prev_step(self, *args: Any, **kwargs: Any) -> None:
         if self.current_mode == "high_cal":
             if self.current_step_idx > 0:
                 self._set_active_step("high_cal", self.current_step_idx - 1)
@@ -1039,7 +1072,7 @@ class FluoCalibrationWin:
             if self.current_step_idx > 0:
                 self._set_active_step("low_cal", self.current_step_idx - 1)
 
-    def _on_next_step(self, *args: Any) -> None:
+    def _on_next_step(self, *args: Any, **kwargs: Any) -> None:
         if self.current_mode == "low_cal":
             if self.current_step_idx < len(self.low_cal_steps) - 1:
                 self._set_active_step("low_cal", self.current_step_idx + 1)
@@ -1052,7 +1085,7 @@ class FluoCalibrationWin:
             if self.current_step_idx < len(self.high_cal_steps) - 1:
                 self._set_active_step("high_cal", self.current_step_idx + 1)
 
-    def _on_record_and_next(self, *args: Any) -> None:
+    def _on_record_and_next(self, *args: Any, **kwargs: Any) -> None:
         """Record the measured intensity for the current step and advance."""
         raw_val = dpg.get_value(self.measured_ue_tag) if dpg.does_item_exist(self.measured_ue_tag) else None
         try:
@@ -1099,7 +1132,7 @@ class FluoCalibrationWin:
         self._refresh_tables()
         self._set_active_step(next_mode, next_idx)
 
-    def _on_test_press(self, *args: Any) -> None:
+    def _on_test_press(self, *args: Any, **kwargs: Any) -> None:
         """Called when the TEST button is clicked/pressed down."""
         self._is_testing = True
         step_val = self._get_active_step_value()
@@ -1121,7 +1154,7 @@ class FluoCalibrationWin:
             dpg.set_value(self.status_msg_tag, "Status: LIGHT ON (Hold...)")
             dpg.configure_item(self.status_msg_tag, color=(255, 200, 0))
 
-    def _on_test_release(self, *args: Any) -> None:
+    def _on_test_release(self, *args: Any, **kwargs: Any) -> None:
         """Called when the mouse is released anywhere."""
         if not self._is_testing:
             return
@@ -1137,7 +1170,7 @@ class FluoCalibrationWin:
             dpg.set_value(self.status_msg_tag, "Status: OFF")
             dpg.configure_item(self.status_msg_tag, color=(160, 160, 160))
 
-    def _on_save_calibration(self, *args: Any) -> None:
+    def _on_save_calibration(self, *args: Any, **kwargs: Any) -> None:
         """Saves current calibration data to a JSON file via file_explorer."""
         # Compile lists
         low_pwm = []
@@ -1339,7 +1372,7 @@ class FluoCalibrationWin:
                 dpg.configure_item(self.status_msg_tag, color=(255, 80, 80))
             return False
 
-    def _on_load_calibration(self, *args: Any) -> None:
+    def _on_load_calibration(self, *args: Any, **kwargs: Any) -> None:
         """Loads existing calibration data from JSON via file_explorer."""
         default_dir = os.path.dirname(__file__)
 
@@ -1356,7 +1389,7 @@ class FluoCalibrationWin:
             callback=on_load_selected,
         )
 
-    def _on_reset_defaults(self, *args: Any) -> None:
+    def _on_reset_defaults(self, *args: Any, **kwargs: Any) -> None:
         """Resets steps and cleared data to factory defaults."""
         self.low_cal_steps = list(self.DEFAULT_LOW_PWM)
         self.low_cal_data = {pwm: None for pwm in self.low_cal_steps}
@@ -1385,20 +1418,42 @@ class FluoCalibrationWin:
             dpg.set_value(self.status_msg_tag, "Reset to default steps.")
             dpg.configure_item(self.status_msg_tag, color=(160, 160, 160))
 
+    def is_ready(self) -> bool:
+        """Indicate whether the dialog window is ready."""
+        return True
+
     def on_close(self) -> None:
         """Turns off light and hides window."""
         self._on_test_release()
         if dpg.does_item_exist(self.win_tag):
             dpg.hide_item(self.win_tag)
 
+    def close(self) -> None:
+        """Closes the calibration dialog."""
+        self.destroy()
+
     def destroy(self) -> None:
-        """Turns off light, cleans up handlers and destroys window."""
+        """Turns off light, cleans up handlers, themes, and destroys window."""
         self._on_test_release()
-        if dpg.does_item_exist(self.test_handler_tag):
-            dpg.delete_item(self.test_handler_tag)
-        if dpg.does_item_exist(self.global_handler_tag):
-            dpg.delete_item(self.global_handler_tag)
-        if dpg.does_item_exist(self.drag_line_tag):
-            dpg.delete_item(self.drag_line_tag)
-        if dpg.does_item_exist(self.win_tag):
-            dpg.delete_item(self.win_tag)
+        self._built_low_steps = []
+        self._built_high_steps = []
+        for tag in [
+            self.test_handler_tag,
+            self.global_handler_tag,
+            self.drag_line_tag,
+            self.win_tag,
+            f"theme_red_pts_{self.uuid}",
+            f"theme_low_pts_{self.uuid}",
+            f"theme_low_line_{self.uuid}",
+            f"theme_high_pts_{self.uuid}",
+            f"theme_high_line_{self.uuid}",
+        ]:
+            if dpg.does_item_exist(tag):
+                try:
+                    dpg.delete_item(tag)
+                except Exception:
+                    pass
+
+
+FluoCalibration_win = FluoCalibrationWin
+__all__ = ["FluoCalibrationWin", "FluoCalibration_win", "CalibrationModelFit"]

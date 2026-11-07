@@ -11,8 +11,10 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from loguru import logger
 
+from config.display_scaling import display_scaling
 from config.theme_manager import highlight
 from core.app_state import app_state
+from core.file_explorer import file_explorer
 from core.input_output_types import IOTypes
 from core.window_base import WindowBase
 from .serial_control import SerialControl
@@ -27,6 +29,21 @@ class FluoControllerWin(WindowBase):
     Supports running standardized test sequences and Fv/Fm measurements.
     """
 
+    label: str = "Fluo Controller"
+    win_width: int = display_scaling.scale(560)
+    win_height: int = display_scaling.scale(440)
+    description: str = (
+        "Control fluorescence hardware via serial: Actinic, Detection, Far-Red, and White LEDs "
+        "with automated Fv/Fm sequences and actinic intensity calibration."
+    )
+
+    accepted_input_types: list[str] = [IOTypes.TEXT, IOTypes.CMD_DICT]
+    outputs: dict[str, str] = {
+        "received_data": IOTypes.TEXT,
+        "control": IOTypes.CMD_DICT,
+    }
+    persistent_fields: list[str] = ["label"]
+
     # Instance variables
     serial: SerialControl
     is_reading: bool
@@ -36,10 +53,6 @@ class FluoControllerWin(WindowBase):
     popt_low: tuple[float, float]
     popt_high: tuple[float, float]
     act_max_ue: float
-    accepted_input_types: list[IOTypes]
-    outputs: dict[str, IOTypes]
-    connections: dict[str, list]
-    _persistent_fields: list[str]
     combo_ports_tag: str
     btn_connect_tag: str
     console_tag: str
@@ -68,12 +81,13 @@ class FluoControllerWin(WindowBase):
     def __init__(
         self,
         label: str = "Fluo Controller",
-        win_width: int = 560,
-        win_height: int = 440,
+        win_width: int = display_scaling.scale(560),
+        win_height: int = display_scaling.scale(440),
         pos: tuple[int, int] = (0, 50),
-        uuid: int | None = None,
-        outputs: dict[str, IOTypes] | None = None,
+        uuid: int | str | None = None,
+        outputs: dict[str, Any] | None = None,
         visible: bool = True,
+        **kwargs: Any,
     ) -> None:
         super().__init__(
             label=label,
@@ -83,19 +97,18 @@ class FluoControllerWin(WindowBase):
             uuid=uuid,
             outputs=outputs,
             visible=visible,
+            **kwargs,
         )
 
+        self._is_closing = False
         self.serial = SerialControl()
         self.serial.on_disconnect = self._on_serial_disconnected
         self.is_reading = True
         self.current_cal_path = None
+        self._last_cal_data: dict[str, Any] | None = None
         self.calib_dialog = None
-
-        # Validation requirements
-        self.accepted_input_types = [IOTypes.TEXT, IOTypes.CMD_DICT]
-        self.outputs = {"received_data": IOTypes.TEXT, "control": IOTypes.CMD_DICT}
-        self.connections = {k: [] for k in self.outputs}
-        self._persistent_fields = ["label"]
+        self._btn_themes: dict[str, int] = {}
+        self._console_text: str = ""
 
         # Tags
         self.combo_ports_tag = f"fluo_ports_{self.UUID}"
@@ -129,21 +142,17 @@ class FluoControllerWin(WindowBase):
 
         if app_state.get("detector") is None:
             app_state.detector = 250
+        if app_state.get("ddim") is None:
+            app_state.ddim = 512
+
+        s = display_scaling.scale
 
         # Build UI
-        with dpg.window(
-            label=self.label,
-            width=self.win_width,
-            height=self.win_height,
-            pos=self.pos,
-            tag=self.winID,
-            show=self.visible,
-            on_close=self.on_close,
-        ):
+        with self.window():
             # Connection Controls
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Refresh", callback=self._refresh_ports)
-                dpg.add_combo(items=[], width=100, tag=self.combo_ports_tag)
+                dpg.add_combo(items=[], width=s(100), tag=self.combo_ports_tag)
                 dpg.add_button(label="Connect", tag=self.btn_connect_tag, callback=self._toggle_connect)
 
             dpg.add_separator()
@@ -161,13 +170,13 @@ class FluoControllerWin(WindowBase):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Dur:")
                     dpg.add_drag_int(
-                        default_value=250, tag=self.test_det_dur_tag, width=70, callback=self._on_test_param_changed
+                        default_value=250, tag=self.test_det_dur_tag, width=s(70), callback=self._on_test_param_changed
                     )
                     dpg.add_text("Dim:")
                     dpg.add_drag_int(
                         default_value=512,
                         tag=self.test_det_dim_tag,
-                        width=70,
+                        width=s(70),
                         min_value=0,
                         max_value=512,
                         clamped=True,
@@ -185,8 +194,8 @@ class FluoControllerWin(WindowBase):
                         min_value=0,
                         clamped=True,
                         max_value=512,
-                        width=80,
-                        callback=lambda s, a: self.serial.send_command(
+                        width=s(80),
+                        callback=lambda s_item, a: self.serial.send_command(
                             f"act {a} {dpg.get_value(self.act_pwm_tag) if dpg.does_item_exist(self.act_pwm_tag) else 512}\n"
                         ) if a is not None else None,
                     )
@@ -198,8 +207,8 @@ class FluoControllerWin(WindowBase):
                         min_value=0,
                         clamped=True,
                         max_value=512,
-                        width=80,
-                        callback=lambda s, a: self.serial.send_command(
+                        width=s(80),
+                        callback=lambda s_item, a: self.serial.send_command(
                             f"act {dpg.get_value(self.act_tag) if dpg.does_item_exist(self.act_tag) else 0} {a}\n"
                         ) if a is not None else None,
                     )
@@ -212,7 +221,7 @@ class FluoControllerWin(WindowBase):
                                 default_value=0,
                                 min_value=0,
                                 max_value=int(self.act_max_ue),
-                                width=80,
+                                width=s(80),
                                 clamped=True,
                                 callback=self._on_act_ue_apply,
                             )
@@ -225,7 +234,7 @@ class FluoControllerWin(WindowBase):
                         min_value=0,
                         clamped=True,
                         max_value=512,
-                        width=80,
+                        width=s(80),
                         callback=self._on_det_changed,
                     )
                     dpg.add_text("Fr")
@@ -233,8 +242,8 @@ class FluoControllerWin(WindowBase):
                         tag=self.fr_tag,
                         default_value=0,
                         min_value=0,
-                        width=80,
-                        callback=lambda s, a: self.serial.send_command(f"fr {a}\n") if a is not None else None,
+                        width=s(80),
+                        callback=lambda s_item, a: self.serial.send_command(f"fr {a}\n") if a is not None else None,
                     )
                     dpg.add_text("Wh")
                     dpg.add_drag_int(
@@ -242,8 +251,8 @@ class FluoControllerWin(WindowBase):
                         default_value=0,
                         min_value=0,
                         max_value=512,
-                        width=80,
-                        callback=lambda s, a: self.serial.send_command(f"white {a}\n") if a is not None else None,
+                        width=s(80),
+                        callback=lambda s_item, a: self.serial.send_command(f"white {a}\n") if a is not None else None,
                     )
                     dpg.add_text("Wh2")
                     dpg.add_drag_int(
@@ -251,8 +260,8 @@ class FluoControllerWin(WindowBase):
                         default_value=0,
                         min_value=0,
                         max_value=512,
-                        width=80,
-                        callback=lambda s, a: self.serial.send_command(f"white2 {a}\n") if a is not None else None,
+                        width=s(80),
+                        callback=lambda s_item, a: self.serial.send_command(f"white2 {a}\n") if a is not None else None,
                     )
 
                 dpg.add_separator()
@@ -260,17 +269,17 @@ class FluoControllerWin(WindowBase):
                 dpg.add_text("Fv/Fm Test")
                 with dpg.group(horizontal=True):
                     dpg.add_text("Pulse:")
-                    dpg.add_drag_int(default_value=250, width=70, min_value=1, tag=self.fvfm_set_t_tag)
+                    dpg.add_drag_int(default_value=250, width=s(70), min_value=1, tag=self.fvfm_set_t_tag)
                     dpg.add_text("Det:")
                     dpg.add_drag_int(
                         default_value=250,
-                        width=70,
+                        width=s(70),
                         min_value=1,
                         tag=self.fvfm_dur_tag,
                         callback=self._on_test_param_changed,
                     )
                     dpg.add_text("DInt:")
-                    dpg.add_drag_int(default_value=512, width=70, min_value=0, max_value=512, tag=self.fvfm_int_tag)
+                    dpg.add_drag_int(default_value=512, width=s(70), min_value=0, max_value=512, tag=self.fvfm_int_tag)
                     dpg.add_button(label="Start", callback=self._run_fvfm_test)
 
                 dpg.add_separator()
@@ -278,10 +287,10 @@ class FluoControllerWin(WindowBase):
                 dpg.add_text("Fixed int. variable exp. test")
                 with dpg.group(horizontal=True):
                     dpg.add_drag_int(
-                        default_value=512, tag=self.intensetag, width=120, min_value=10, max_value=512, clamped=True
+                        default_value=512, tag=self.intensetag, width=s(120), min_value=10, max_value=512, clamped=True
                     )
                     dpg.add_button(label="Start", callback=self._run_fixed_int_test)
-                    dpg.add_drag_int(default_value=250, tag=self.pulse_delay_int_tag, width=80, label="Gap (ms)")
+                    dpg.add_drag_int(default_value=250, tag=self.pulse_delay_int_tag, width=s(80), label="Gap (ms)")
 
                 dpg.add_text("Fixed exp. variable int. test")
                 with dpg.group(horizontal=True):
@@ -289,12 +298,12 @@ class FluoControllerWin(WindowBase):
                         min_value=10,
                         max_value=5000,
                         default_value=250,
-                        width=120,
+                        width=s(120),
                         tag=self.expostag,
                         callback=self._on_test_param_changed,
                     )
                     dpg.add_button(label="Start", callback=self._run_fixed_exp_test)
-                    dpg.add_drag_int(default_value=250, tag=self.pulse_delay_exp_tag, width=80, label="Gap (ms)")
+                    dpg.add_drag_int(default_value=250, tag=self.pulse_delay_exp_tag, width=s(80), label="Gap (ms)")
 
                 dpg.add_separator()
 
@@ -308,8 +317,8 @@ class FluoControllerWin(WindowBase):
                         min_value=0,
                         clamped=True,
                         max_value=512,
-                        width=80,
-                        callback=lambda s, a: self._send_sineact(),
+                        width=s(80),
+                        callback=lambda s_item, a: self._send_sineact(),
                     )
                     dpg.add_text("Amp")
                     dpg.add_drag_int(
@@ -318,8 +327,8 @@ class FluoControllerWin(WindowBase):
                         min_value=0,
                         clamped=True,
                         max_value=512,
-                        width=80,
-                        callback=lambda s, a: self._send_sineact(),
+                        width=s(80),
+                        callback=lambda s_item, a: self._send_sineact(),
                     )
                     dpg.add_button(label="Send", callback=self._send_sineact)
                     dpg.add_button(label="Stop", callback=self._stop_sineact)
@@ -333,7 +342,7 @@ class FluoControllerWin(WindowBase):
                     multiline=True,
                     readonly=True,
                     width=-1,
-                    height=100,
+                    height=s(100),
                     default_value="",
                 )
 
@@ -352,6 +361,7 @@ class FluoControllerWin(WindowBase):
             on_calibration_saved=self._load_act_calibration,
             parent_uuid=self.UUID,
             initial_cal_path=self.current_cal_path,
+            initial_cal_data=self._last_cal_data,
             show=False,
         )
 
@@ -362,8 +372,6 @@ class FluoControllerWin(WindowBase):
         - Connection (Refresh, port combo, Connect), Cal: Browse + file label, and Test Detection are visible.
         - Calibrate button, Act PWM µE, Det PWM Fr Wh Wh2, Fv/Fm and all following controls are hidden.
         """
-        from core.app_state import app_state
-
         is_user = (app_state.mode == "user")
 
         if dpg.does_item_exist(self.winID):
@@ -402,29 +410,28 @@ class FluoControllerWin(WindowBase):
         if not dpg.does_item_exist(tag):
             return
 
-        if state == "orange":
-            with dpg.theme() as theme:
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_Button, (255, 165, 0), category=dpg.mvThemeCat_Core)
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (255, 180, 50), category=dpg.mvThemeCat_Core)
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (255, 140, 0), category=dpg.mvThemeCat_Core)
-            dpg.bind_item_theme(tag, theme)
-        elif state == "green":
-            with dpg.theme() as theme:
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 100, 0), category=dpg.mvThemeCat_Core)
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (0, 150, 0), category=dpg.mvThemeCat_Core)
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (0, 200, 0), category=dpg.mvThemeCat_Core)
-            dpg.bind_item_theme(tag, theme)
-        elif state == "red":
-            with dpg.theme() as theme:
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 0, 0), category=dpg.mvThemeCat_Core)
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 0, 0), category=dpg.mvThemeCat_Core)
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (255, 0, 0), category=dpg.mvThemeCat_Core)
-            dpg.bind_item_theme(tag, theme)
-        elif state == "default":
+        if state == "default":
             dpg.bind_item_theme(tag, 0)
+            return
+
+        theme = self._btn_themes.get(state)
+        if theme is None or not dpg.does_item_exist(theme):
+            color_map = {
+                "orange": ((255, 165, 0), (255, 180, 50), (255, 140, 0)),
+                "green": ((0, 100, 0), (0, 150, 0), (0, 200, 0)),
+                "red": ((150, 0, 0), (200, 0, 0), (255, 0, 0)),
+            }
+            colors = color_map.get(state)
+            if not colors:
+                return
+            btn_col, hov_col, act_col = colors
+            with dpg.theme() as theme:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, btn_col, category=dpg.mvThemeCat_Core)
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, hov_col, category=dpg.mvThemeCat_Core)
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, act_col, category=dpg.mvThemeCat_Core)
+            self._btn_themes[state] = theme
+        dpg.bind_item_theme(tag, theme)
 
     def _on_serial_disconnected(self) -> None:
         if dpg.does_item_exist(self.btn_connect_tag):
@@ -570,6 +577,7 @@ class FluoControllerWin(WindowBase):
             self._log_to_console(f"Calibration loaded: {filename}")
 
             self.current_cal_path = os.path.abspath(cal_path)
+            self._last_cal_data = cal_data
             if self.calib_dialog is not None:
                 self.calib_dialog.load_from_dict(cal_data, file_path=self.current_cal_path)
 
@@ -581,7 +589,6 @@ class FluoControllerWin(WindowBase):
             return False
 
     def _on_browse_calibration(self, *args: Any, **kwargs: Any) -> None:
-        from core.file_explorer import file_explorer
         default_dir = os.path.dirname(__file__)
         file_explorer.select_file(
             default_path=default_dir,
@@ -597,6 +604,7 @@ class FluoControllerWin(WindowBase):
                 on_calibration_saved=self._load_act_calibration,
                 parent_uuid=self.UUID,
                 initial_cal_path=self.current_cal_path,
+                initial_cal_data=self._last_cal_data,
                 show=True,
             )
         else:
@@ -815,11 +823,16 @@ class FluoControllerWin(WindowBase):
             self.serial.send_command(cmd_str)
         self._log_to_console(f"Sent Fv/Fm cmd: {cmd_str.strip()}")
 
-    def _on_test_param_changed(self, sender: str, app_data: Any = None, *args: Any, **kwargs: Any) -> None:
+    def _on_test_param_changed(self, sender: Any = None, app_data: Any = None, *args: Any, **kwargs: Any) -> None:
         """Emits an exposure command when test parameters are modified."""
         if sender == self.test_det_dur_tag or sender == self.expostag:
             dur = app_data if app_data is not None else dpg.get_value(sender)
         elif sender == self.test_det_dim_tag:
+            dim_val = app_data if app_data is not None else dpg.get_value(sender)
+            try:
+                app_state.ddim = int(dim_val)
+            except (ValueError, TypeError):
+                pass
             dur = dpg.get_value(self.test_det_dur_tag)
         elif sender == self.fvfm_dur_tag:
             dur = app_data if app_data is not None else dpg.get_value(self.fvfm_dur_tag)
@@ -874,11 +887,12 @@ class FluoControllerWin(WindowBase):
 
     def _log_to_console(self, text: str) -> None:
         if hasattr(self, "console_tag") and dpg.does_item_exist(self.console_tag):
-            current = dpg.get_value(self.console_tag)
             timestamp = datetime.now().strftime("[%H:%M:%S] ")
+            current = getattr(self, "_console_text", "")
             new_text = f"{current}\n{timestamp}{text}" if current else f"{timestamp}{text}"
             if len(new_text) > 5000:
                 new_text = new_text[-5000:]
+            self._console_text = new_text
             dpg.set_value(self.console_tag, new_text)
 
     def input_cb(self, *args: Any, **kwargs: Any) -> None:
@@ -889,7 +903,10 @@ class FluoControllerWin(WindowBase):
         if data_type == IOTypes.CMD_DICT or isinstance(data, dict):
             # Command dictionaries from sequence processor
             cmd_payload = kwargs.get("cmd") if kwargs.get("cmd") is not None else data
-            if isinstance(cmd_payload, dict) and "send" in cmd_payload:
+            if not isinstance(cmd_payload, dict):
+                return
+
+            if "send" in cmd_payload:
                 if self.serial.connected:
                     cmd_str = cmd_payload["send"]
                     if not cmd_str.endswith("\n"):
@@ -897,7 +914,7 @@ class FluoControllerWin(WindowBase):
                     self.serial.send_command(cmd_str)
                     self._log_to_console(f"Auto >> {cmd_str.strip()}")
 
-            elif isinstance(cmd_payload, dict) and "connect" in cmd_payload:
+            elif "connect" in cmd_payload:
                 val = cmd_payload["connect"]
                 if val is False:
                     self._disconnect()
@@ -905,10 +922,10 @@ class FluoControllerWin(WindowBase):
                     port = val if isinstance(val, str) else cmd_payload.get("port")
                     self._connect(port=port)
 
-            elif isinstance(cmd_payload, dict) and "disconnect" in cmd_payload:
+            elif "disconnect" in cmd_payload:
                 self._disconnect()
 
-            elif isinstance(cmd_payload, dict) and (
+            elif (
                 "load_calibration" in cmd_payload
                 or "load_cal" in cmd_payload
                 or "calibration" in cmd_payload
@@ -924,24 +941,24 @@ class FluoControllerWin(WindowBase):
                     cal_path = cmd_payload.get("path") or cmd_payload.get("file")
                 self._load_act_calibration(cal_path)
 
-            elif isinstance(cmd_payload, dict) and "fluo_ref" in cmd_payload:
+            elif "fluo_ref" in cmd_payload:
                 n_frames = cmd_payload.get("n_frames")
                 exposure = cmd_payload.get("exposure")
                 self._handle_ref(n_frames=n_frames, exposure=exposure)
 
-            elif isinstance(cmd_payload, dict) and "trigger_cam" in cmd_payload:
+            elif "trigger_cam" in cmd_payload:
                 # Proxy trigger to camera
                 self._emit_control(cmd_payload)
 
-            elif isinstance(cmd_payload, dict) and "act" in cmd_payload:
+            elif "act" in cmd_payload:
                 intensity = cmd_payload["act"]
                 self._set_act_uE(intensity)
                 self._log_to_console(f"Auto >> Act µE={intensity}")
 
-            elif isinstance(cmd_payload, dict) and "fvfm" in cmd_payload:
+            elif "fvfm" in cmd_payload:
                 self._run_fvfm_test()
                 self._log_to_console("Auto >> Fv/Fm measurement triggered")
-            elif isinstance(cmd_payload, dict) and "white" in cmd_payload:
+            elif "white" in cmd_payload:
                 intensity = int(cmd_payload["white"])
                 if dpg.does_item_exist(self.white_tag):
                     dpg.set_value(self.white_tag, intensity)
@@ -949,7 +966,7 @@ class FluoControllerWin(WindowBase):
                     self.serial.send_command(f"white {intensity}\n")
                 self._log_to_console(f"Auto >> White={intensity}")
 
-            elif isinstance(cmd_payload, dict) and "white2" in cmd_payload:
+            elif "white2" in cmd_payload:
                 intensity = int(cmd_payload["white2"])
                 if dpg.does_item_exist(self.white2_tag):
                     dpg.set_value(self.white2_tag, intensity)
@@ -957,13 +974,26 @@ class FluoControllerWin(WindowBase):
                     self.serial.send_command(f"white2 {intensity}\n")
                 self._log_to_console(f"Auto >> White2={intensity}")
 
-            elif isinstance(cmd_payload, dict) and "testdet" in cmd_payload:
+            elif "testdet" in cmd_payload:
                 self._run_test_detection()
                 self._log_to_console("Auto >> Test detection triggered")
-            elif isinstance(cmd_payload, dict) and "fluo_fixed_int_test" in cmd_payload:
+            elif "detection" in cmd_payload:
+                raw_dur = cmd_payload.get("pdur", cmd_payload.get("dur"))
+                raw_dim = cmd_payload.get("ddim", cmd_payload.get("adim", cmd_payload.get("dim")))
+                dur = int(raw_dur) if raw_dur is not None else (
+                    int(dpg.get_value(self.test_det_dur_tag)) if dpg.does_item_exist(self.test_det_dur_tag) else int(app_state.get("detector", 250) or 250)
+                )
+                dim = int(raw_dim) if raw_dim is not None else (
+                    int(dpg.get_value(self.test_det_dim_tag)) if dpg.does_item_exist(self.test_det_dim_tag) else int(app_state.get("ddim", 512) or 512)
+                )
+                cmd_str = f"detection {dur} {dim}\n"
+                if self.serial.connected:
+                    self.serial.send_command(cmd_str)
+                self._log_to_console(f"Auto >> {cmd_str.strip()}")
+            elif "fluo_fixed_int_test" in cmd_payload:
                 self._run_fixed_int_test()
                 self._log_to_console("Auto >> Fixed Int Var Exp test triggered")
-            elif isinstance(cmd_payload, dict) and "exposure" in cmd_payload:
+            elif "exposure" in cmd_payload:
                 val = int(cmd_payload["exposure"])
                 app_state.detector = val
                 if dpg.does_item_exist(self.test_det_dur_tag):
@@ -974,7 +1004,7 @@ class FluoControllerWin(WindowBase):
                     dpg.set_value(self.expostag, val)
                 self._log_to_console(f"Auto >> Expositions updated to {val} µs")
 
-            elif isinstance(cmd_payload, dict) and ("det" in cmd_payload or "detector" in cmd_payload):
+            elif "det" in cmd_payload or "detector" in cmd_payload:
                 raw_det = cmd_payload.get("det", cmd_payload.get("detector"))
                 try:
                     val = int(raw_det)
@@ -987,7 +1017,7 @@ class FluoControllerWin(WindowBase):
                 except (ValueError, TypeError):
                     pass
 
-            elif isinstance(cmd_payload, dict) and "sineact" in cmd_payload:
+            elif "sineact" in cmd_payload:
                 sine_val = cmd_payload["sineact"]
                 if isinstance(sine_val, (list, tuple)) and len(sine_val) >= 2:
                     freq = float(sine_val[0])
@@ -1026,21 +1056,48 @@ class FluoControllerWin(WindowBase):
             self.serial.send_command(cmd_str)
         self._log_to_console("Stopped Sine Act (sineact 0 0)")
 
+    def is_ready(self) -> bool:
+        """Indicate whether the module is initialized and ready to operate."""
+        return not getattr(self, "_is_closing", False)
+
     def on_close(self) -> None:
+        """Release serial resources and calibration dialog on window close."""
+        if getattr(self, "_is_closing", False):
+            return
+        self._is_closing = True
         self.is_reading = False
+        if hasattr(self, "read_thread") and self.read_thread and self.read_thread.is_alive():
+            try:
+                self.read_thread.join(timeout=0.3)
+            except Exception:
+                pass
         self._disconnect()
         if self.calib_dialog is not None:
-            self.calib_dialog.destroy()
-        if dpg.does_item_exist(self.winID):
-            dpg.delete_item(self.winID)
+            try:
+                self.calib_dialog.destroy()
+            except Exception:
+                pass
+        for theme in getattr(self, "_btn_themes", {}).values():
+            if theme and dpg.does_item_exist(theme):
+                try:
+                    dpg.delete_item(theme)
+                except Exception:
+                    pass
+        self._btn_themes.clear()
+        super().on_close()
 
     def close(self) -> None:
-        self.is_reading = False
-        self._disconnect()
-        if self.calib_dialog is not None:
-            self.calib_dialog.destroy()
+        """Close window and unregister."""
+        self.on_close()
         super().close()
 
+    def destroy(self) -> None:
+        """Destroy window and release resources."""
+        self.close()
+        super().destroy()
 
+
+FluoController_win = FluoControllerWin
 EXPORTED_CLASS = FluoControllerWin
 EXPORTED_NAME = "Fluo_controller"
+__all__ = ["FluoControllerWin", "FluoController_win", "EXPORTED_CLASS", "EXPORTED_NAME"]
