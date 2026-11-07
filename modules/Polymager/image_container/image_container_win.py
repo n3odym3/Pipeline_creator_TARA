@@ -1,33 +1,70 @@
 from __future__ import annotations
 
-import dearpygui.dearpygui as dpg
-from core.window_base import WindowBase
-from core.input_output_types import IOTypes
-from core.file_explorer import file_explorer
-from loguru import logger
-import os
-import sys
-import cv2
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import time
-import numpy as np
-import re
-import zipfile
 import json
-import queue
+import os
 import pickle
-from config.theme_manager import highlight, theme_manager
-from config.display_scaling import display_scaling
+import queue
+import re
+import sys
+import threading
+import time
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+
+import cv2
+import dearpygui.dearpygui as dpg
+import numpy as np
+from loguru import logger
+
+from config.display_scaling import display_scaling
+from config.theme_manager import highlight, theme_manager
+from core.app_state import app_state
+from core.file_explorer import file_explorer
+from core.input_output_types import IOTypes
+from core.window_base import WindowBase
+
+_A_VALUE_RE = re.compile(r"[_\-]A(\d+(?:\.\d+)?)(?:[_\-]|$)")
+_NAT_SORT_RE = re.compile(r"(\d+)")
+
 
 class ImageContainerWin(WindowBase):
     """
     ImageContainerWin:
     Loads images from a folder path (String input) or receives frames (Frame input) into memory.
-    Allows sequential playback and filtering.
+    Allows sequential playback, multi-ROI batch analysis, experiment persistence (ZIP import/export), and filtering.
     """
-    folder_path: str
+
+    label: str = "Image Container"
+    win_width: int = display_scaling.scale(300)
+    win_height: int = display_scaling.scale(500)
+    description: str = (
+        "Manage, cache, filter, and replay experimental image sequences in memory with "
+        "multi-ROI batch analysis, experiment persistence (ZIP import/export), and synchronous distribution."
+    )
+
+    accepted_input_types: list[str] = [
+        IOTypes.FOLDER_PATH,
+        IOTypes.FRAME,
+        IOTypes.FRAME12,
+        IOTypes.FRAME16,
+        IOTypes.ROI_SAMPLE,
+        IOTypes.CMD_DICT,
+    ]
+    outputs: dict[str, str] = {
+        "Frame": IOTypes.FRAME,
+        "Result": IOTypes.SAMPLE,
+        "Folder": IOTypes.FOLDER_PATH,
+        "Group": IOTypes.TEXT,
+        "CMD": IOTypes.CMD_DICT,
+        "ROI": IOTypes.ROI_SAMPLE,
+        "Image Name": IOTypes.TEXT,
+        "Cropped Images": IOTypes.FRAME_LIST,
+        "Frame List": IOTypes.FRAME_LIST,
+    }
+    persistent_fields: list[str] = ["label", "folder_path"]
+    folder_path: str = ""
+
     image_cache: dict[str, np.ndarray]
     metadata_cache: dict[str, dict[str, Any]]
     current_list: list[str]
@@ -57,14 +94,10 @@ class ImageContainerWin(WindowBase):
     timestamp_check_tag: str
     browse_btn_tag: str
     handler_registry_tag: str
-    persistent_fields: list[str]
-    accepted_input_types: list[IOTypes]
     name_queue: list[str]
     roi_queue: queue.Queue
     play_btn: int | str
     stop_btn: int | str
-    outputs: dict[str, Any]
-    connections: dict[str, list[Any]]
 
     def __init__(
         self,
@@ -78,19 +111,8 @@ class ImageContainerWin(WindowBase):
         folder_path: str | None = None,
         **kwargs: Any,
     ) -> None:
-
-        if outputs is None:
-            outputs = {
-                "Frame": IOTypes.FRAME,
-                "Result": IOTypes.SAMPLE,
-                "Folder": IOTypes.FOLDER_PATH,
-                "Group": IOTypes.TEXT,
-                "CMD": IOTypes.CMD_DICT,
-                "ROI": IOTypes.ROI_SAMPLE,
-                "Image Name": IOTypes.TEXT,
-                "Cropped Images": IOTypes.FRAME_LIST,
-                "Frame List": IOTypes.FRAME_LIST,
-            }
+        if folder_path is not None:
+            kwargs["folder_path"] = folder_path
 
         super().__init__(
             label=label,
@@ -103,26 +125,32 @@ class ImageContainerWin(WindowBase):
             **kwargs,
         )
 
-        self.outputs = outputs or {}
-        self.connections = {k: [] for k in self.outputs}
         self._is_closing = False
 
-        # State
-        self.folder_path = folder_path if folder_path else os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "experiments")
+        # State - defensive persistent field recovery
+        raw_folder = getattr(self, "folder_path", None)
+        if not raw_folder:
+            self.folder_path = os.path.join(
+                os.path.dirname(os.path.abspath(sys.argv[0])), "experiments"
+            )
+        else:
+            self.folder_path = str(raw_folder)
+
         self.image_cache = {}  # {filename: image_data}
-        self.metadata_cache = {} # {filename: {id, group}}
-        self.current_list = [] # List of filenames currently displayed/filtered
+        self.metadata_cache = {}  # {filename: {id, group, A, time}}
+        self.current_list = []  # List of filenames currently displayed/filtered
+        self._current_index_map: dict[str, int] = {}
         self.playback_active = False
         self.stop_playback_flag = False
         self.playback_thread = None
         self.groups = ["All"]
-        self.frame_counter = 0 # For naming incoming frames
-        self.active_rois = {} # {uuid: {sample, x, y, func}}
-        self._roi_cache = {} # {uuid: {sample, prepared, x, y, labels, list_len}}
+        self.frame_counter = 0  # For naming incoming frames
+        self.active_rois = {}  # {uuid: {sample, x, y, func}}
+        self._roi_cache = {}  # {uuid: {sample, prepared, x, y, labels, list_len}}
         self.ts_reference = time.time()
-        self.manual = False # Manual mode flag to disable auto-scan
-        self.pending_group = None # Group to select after next scan
-        
+        self.manual = False  # Manual mode flag to disable auto-scan
+        self.pending_group = None  # Group to select after next scan
+
         # UI Tags
         self.browse_btn_tag = f"ic_browse_{self.UUID}"
         self.listbox_tag = f"ic_listbox_{self.UUID}"
@@ -143,35 +171,40 @@ class ImageContainerWin(WindowBase):
         self.record_check_tag = f"ic_record_check_{self.UUID}"
         self.save_check_tag = f"ic_save_check_{self.UUID}"
         self.timestamp_check_tag = f"ic_timestamp_check_{self.UUID}"
-        
-        # Module Configuration
-        self.persistent_fields = ["label", "folder_path"]
-        self.accepted_input_types = [IOTypes.FOLDER_PATH, IOTypes.FRAME, IOTypes.FRAME12, IOTypes.FRAME16, IOTypes.ROI_SAMPLE, IOTypes.CMD_DICT] 
-        
+
         # Load config.json
         self.config = {
             "emit_clear_on_group_selection": True,
-            "emit_fo_fm_on_group_selection": False
+            "emit_fo_fm_on_group_selection": False,
         }
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "config.json"
+        )
         if os.path.exists(config_path):
             try:
                 with open(config_path, "r") as f:
                     user_config = json.load(f)
-                    for k in ["emit_clear_on_group_selection", "emit_clear_on groupe_selection"]:
+                    for k in [
+                        "emit_clear_on_group_selection",
+                        "emit_clear_on groupe_selection",
+                    ]:
                         if k in user_config:
-                            self.config["emit_clear_on_group_selection"] = bool(user_config[k])
+                            self.config["emit_clear_on_group_selection"] = bool(
+                                user_config[k]
+                            )
                     if "emit_fo_fm_on_group_selection" in user_config:
-                        self.config["emit_fo_fm_on_group_selection"] = bool(user_config["emit_fo_fm_on_group_selection"])
+                        self.config["emit_fo_fm_on_group_selection"] = bool(
+                            user_config["emit_fo_fm_on_group_selection"]
+                        )
             except Exception as e:
                 logger.error(f"Error loading config.json for ImageContainer: {e}")
 
-        self.name_queue = [] # Queue for incoming image names
-        
+        self.name_queue = []  # Queue for incoming image names
+
         self.roi_queue = queue.Queue()
         threading.Thread(target=self._roi_worker, daemon=True).start()
 
-        self._build_interface(win_width, win_height)
+        self._build_interface()
         self.update_permission()
 
     def update_permission(self) -> None:
@@ -180,8 +213,6 @@ class ImageContainerWin(WindowBase):
         In 'user' mode: hide play, stop, fps, record, save, timestamp, and disable unneeded inputs.
         Export and import remain functional and visible.
         """
-        from core.app_state import app_state
-
         mode = app_state.mode
         is_user = (mode == "user")
 
@@ -216,8 +247,8 @@ class ImageContainerWin(WindowBase):
         if dpg.does_item_exist(self.winID):
             dpg.configure_item(self.winID, no_close=is_user)
 
-    def _build_interface(self, width: int, height: int) -> None:
-        with dpg.window(label=self.label, width=width, height=height, pos=self.pos, tag=self.winID, show=self.visible):
+    def _build_interface(self, width: int = -1, height: int = -1) -> None:
+        with self.window():
 
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Browse", tag=self.browse_btn_tag, width=display_scaling.scale(100), callback=self._on_browse_clicked)
@@ -291,7 +322,7 @@ class ImageContainerWin(WindowBase):
             dpg.add_item_resize_handler(callback=self._on_resize)
         dpg.bind_item_handler_registry(self.winID, self.handler_registry_tag)
 
-    def _on_resize(self, *args: Any) -> None:
+    def _on_resize(self, *args: Any, **kwargs: Any) -> None:
         if not dpg.does_item_exist(self.winID) or not dpg.does_item_exist(self.listbox_tag):
             return
         win_h = dpg.get_item_height(self.winID)
@@ -324,31 +355,33 @@ class ImageContainerWin(WindowBase):
                 mode = "Time"
 
         if mode == "Time":
+            meta = self.metadata_cache.get(filename)
+            if meta is not None and "time" in meta:
+                t_val = meta["time"]
+                return float(t_val) if t_val is not None else float(index)
             try:
                 name_no_ext = os.path.splitext(filename)[0]
-                parts = name_no_ext.split('_')
+                parts = name_no_ext.split("_")
                 if parts and parts[-1].isdigit():
                     return float(parts[-1])
             except Exception:
-                pass # Fallback to index
+                pass  # Fallback to index
         elif mode == "Intensity":
             try:
-                # Check metadata for 'A' value, fallback to 0
-                meta = self.metadata_cache.get(filename, {})
-                if 'A' in meta and meta['A'] is not None:
-                    return float(meta['A'])
-                # Also try to extract it from the path just in case metadata isn't ready
+                meta = self.metadata_cache.get(filename)
+                if meta is not None and "A" in meta and meta["A"] is not None:
+                    return float(meta["A"])
                 name_no_ext = os.path.splitext(filename)[0]
-                a_match = re.search(r'[_\-]A(\d+(?:\.\d+)?)(?:[_\-]|$)', f"_{name_no_ext}_")
+                a_match = _A_VALUE_RE.search(f"_{name_no_ext}_")
                 if a_match:
                     return float(a_match.group(1))
-                return 0.0 # Default to 0 instead of index for intensity to keep scales consistent
+                return 0.0  # Default to 0 instead of index for intensity to keep scales consistent
             except Exception:
                 pass
 
         return float(index)
 
-    def _on_x_axis_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any) -> None:
+    def _on_x_axis_changed(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         """
         Callback triggered when X-Axis mode is changed (Index / Time / Intensity).
         Recalculates the X values for all currently active and cached ROIs and re-emits them.
@@ -359,12 +392,13 @@ class ImageContainerWin(WindowBase):
             return
 
         logger.info(f"ImageContainer: X-Axis mode changed to '{mode}'. Recalculating X scales for all ROIs...")
+        idx_map = self._current_index_map
 
         # Recalculate and re-emit active ROIs
         for roi_uuid, roi_data in list(self.active_rois.items()):
             labels = roi_data.get("labels", [])
             new_x = [
-                self._get_x_value(fname, self.current_list.index(fname) if fname in self.current_list else i, mode=mode)
+                self._get_x_value(fname, idx_map.get(fname, i), mode=mode)
                 for i, fname in enumerate(labels)
             ]
             roi_data["x"] = new_x
@@ -391,7 +425,7 @@ class ImageContainerWin(WindowBase):
             if roi_uuid not in self.active_rois:
                 labels = cached.get("labels", [])
                 new_x = [
-                    self._get_x_value(fname, self.current_list.index(fname) if fname in self.current_list else i, mode=mode)
+                    self._get_x_value(fname, idx_map.get(fname, i), mode=mode)
                     for i, fname in enumerate(labels)
                 ]
                 cached["x"] = new_x
@@ -399,8 +433,8 @@ class ImageContainerWin(WindowBase):
         # Re-emit current position marker if an image is selected
         if dpg.does_item_exist(self.listbox_tag):
             selected_img = dpg.get_value(self.listbox_tag)
-            if selected_img and selected_img in self.current_list:
-                idx = self.current_list.index(selected_img)
+            idx = idx_map.get(selected_img) if selected_img else None
+            if selected_img and idx is not None:
                 x_val = self._get_x_value(selected_img, idx, mode=mode)
                 self._emit_cmd({"action": "position", "value": x_val})
                 pos_payload = {"action": "position", "value": x_val}
@@ -643,30 +677,37 @@ class ImageContainerWin(WindowBase):
             # Resize mask only when image dimensions differ from the reference
             ih, iw = img.shape[:2]
             if (ih, iw) != ref_shape:
-                full_mask = cv2.resize(
-                    prepared["mask_full"].astype(np.uint8),
-                    (iw, ih), interpolation=cv2.INTER_NEAREST
-                ).astype(bool)
-                # Recompute bbox rows for this size
-                rows = np.any(full_mask, axis=1)
-                cols = np.any(full_mask, axis=0)
-                r0, r1 = np.where(rows)[0][[0, -1]]
-                c0, c1 = np.where(cols)[0][[0, -1]]
-                mask_crop = full_mask[r0:r1+1, c0:c1+1]
-                img_crop  = img[r0:r1+1, c0:c1+1]
+                resized_cache = prepared.setdefault("_resized_cache", {})
+                cached_res = resized_cache.get((ih, iw))
+                if cached_res is None:
+                    full_mask = cv2.resize(
+                        prepared["mask_full"].astype(np.uint8),
+                        (iw, ih), interpolation=cv2.INTER_NEAREST
+                    ).astype(bool)
+                    row_idx = np.flatnonzero(np.any(full_mask, axis=1))
+                    col_idx = np.flatnonzero(np.any(full_mask, axis=0))
+                    if row_idx.size == 0 or col_idx.size == 0:
+                        cached_res = (np.zeros((0, 0), dtype=bool), 0, -1, 0, -1)
+                    else:
+                        r0, r1 = int(row_idx[0]), int(row_idx[-1])
+                        c0, c1 = int(col_idx[0]), int(col_idx[-1])
+                        cached_res = (full_mask[r0:r1+1, c0:c1+1], r0, r1, c0, c1)
+                    resized_cache[(ih, iw)] = cached_res
+                mask_crop, r0, r1, c0, c1 = cached_res
+                img_crop = img[r0:r1+1, c0:c1+1]
             else:
                 r0, c0 = by, bx
                 r1, c1 = by + bh - 1, bx + bw - 1
                 img_crop = img[r0:r1+1, c0:c1+1]
 
-            if img_crop.size == 0:
+            if img_crop.size == 0 or mask_crop.size == 0:
                 return 0.0
-            # Two-pass version: faster than fancy-index mean for large arrays
+            # Two-pass version without fancy-index copy allocation
             valid = mask_crop & (img_crop > 0)
             n = int(np.count_nonzero(valid))
             if n == 0:
                 return 0.0
-            return float(np.sum(img_crop[valid])) / n
+            return float(np.sum(img_crop, where=valid, dtype=np.float64)) / n
 
         else:  # kind == "rect"
             h, w = img.shape[:2]
@@ -686,7 +727,7 @@ class ImageContainerWin(WindowBase):
             p_thresh = np.percentile(roi_img, 100 - threshold)
             mask = roi_img >= p_thresh
             n = int(np.count_nonzero(mask))
-            return float(np.sum(roi_img[mask])) / n if n > 0 else 0.0
+            return float(np.sum(roi_img, where=mask, dtype=np.float64)) / n if n > 0 else 0.0
 
     @staticmethod
     def _crop_roi(img: np.ndarray, prepared: dict[str, Any]) -> np.ndarray:
@@ -701,14 +742,23 @@ class ImageContainerWin(WindowBase):
             ref_shape = prepared["ref_shape"]
             ih, iw = img.shape[:2]
             if (ih, iw) != ref_shape:
-                full_mask = cv2.resize(
-                    prepared["mask_full"].astype(np.uint8),
-                    (iw, ih), interpolation=cv2.INTER_NEAREST
-                ).astype(bool)
-                rows = np.any(full_mask, axis=1)
-                cols = np.any(full_mask, axis=0)
-                r0, r1 = np.where(rows)[0][[0, -1]]
-                c0, c1 = np.where(cols)[0][[0, -1]]
+                resized_cache = prepared.setdefault("_resized_cache", {})
+                cached_res = resized_cache.get((ih, iw))
+                if cached_res is None:
+                    full_mask = cv2.resize(
+                        prepared["mask_full"].astype(np.uint8),
+                        (iw, ih), interpolation=cv2.INTER_NEAREST
+                    ).astype(bool)
+                    row_idx = np.flatnonzero(np.any(full_mask, axis=1))
+                    col_idx = np.flatnonzero(np.any(full_mask, axis=0))
+                    if row_idx.size == 0 or col_idx.size == 0:
+                        cached_res = (np.zeros((0, 0), dtype=bool), 0, -1, 0, -1)
+                    else:
+                        r0, r1 = int(row_idx[0]), int(row_idx[-1])
+                        c0, c1 = int(col_idx[0]), int(col_idx[-1])
+                        cached_res = (full_mask[r0:r1+1, c0:c1+1], r0, r1, c0, c1)
+                    resized_cache[(ih, iw)] = cached_res
+                _, r0, r1, c0, c1 = cached_res
                 img_crop = img[r0:r1+1, c0:c1+1]
             else:
                 r0, c0 = by, bx
@@ -863,9 +913,11 @@ class ImageContainerWin(WindowBase):
             req_rect = roi_sample.get("rect")
             if cached.get("list_len") == len(self.current_list) and cached_rect == req_rect:
                 # Recalculate x_data in case the X-axis mode changed since caching
+                mode = dpg.get_value(self.x_axis_combo_tag) if dpg.does_item_exist(self.x_axis_combo_tag) else "Time"
+                idx_map = self._current_index_map
                 labels = cached.get("labels", [])
                 x_data = [
-                    self._get_x_value(fname, self.current_list.index(fname) if fname in self.current_list else i)
+                    self._get_x_value(fname, idx_map.get(fname, i), mode=mode)
                     for i, fname in enumerate(labels)
                 ]
                 cached["x"] = x_data
@@ -908,18 +960,18 @@ class ImageContainerWin(WindowBase):
         else:
             prepared = self._prepare_roi_rect(roi_sample)
 
+        mode = dpg.get_value(self.x_axis_combo_tag) if dpg.does_item_exist(self.x_axis_combo_tag) else "Time"
         x_data = []
         y_data = []
+        labels = []
 
         for i, filename in enumerate(self.current_list):
             if filename not in self.image_cache:
                 continue
             img = self.image_cache[filename]
-            x_data.append(self._get_x_value(filename, i))
+            x_data.append(self._get_x_value(filename, i, mode=mode))
             y_data.append(self._compute_roi_mean(img, prepared))
-
-        # Build labels list
-        labels = [f for f in self.current_list if f in self.image_cache]
+            labels.append(filename)
 
         # ── Emit cropped ROI images if a downstream module is connected ──
         self._emit_cropped_images(roi_sample, prepared, x_data, labels)
@@ -949,11 +1001,13 @@ class ImageContainerWin(WindowBase):
     
     def _process_active_rois_single_frame(self, filename: str) -> None:
         """Processes a newly added frame against all active ROIs."""
-        if filename not in self.image_cache:
+        if filename not in self.image_cache or not self.active_rois:
             return
 
         img = self.image_cache[filename]
         idx = len(self.current_list) - 1  # Index of the new frame
+        mode = dpg.get_value(self.x_axis_combo_tag) if dpg.does_item_exist(self.x_axis_combo_tag) else "Time"
+        x_val = self._get_x_value(filename, idx, mode=mode)
         
         for uuid, data in self.active_rois.items():
             # Re-use pre-computed descriptor from _process_roi_batch.
@@ -971,7 +1025,6 @@ class ImageContainerWin(WindowBase):
 
             mean_val = self._compute_roi_mean(img, prepared)
 
-            x_val = self._get_x_value(filename, idx)
             data["x"].append(x_val)
             data["y"].append(float(mean_val))
             data["list_len"] = len(self.current_list)
@@ -1038,6 +1091,7 @@ class ImageContainerWin(WindowBase):
             logger.warning("ImageContainer: current list is empty, nothing to send.")
             return
 
+        mode = dpg.get_value(self.x_axis_combo_tag) if dpg.does_item_exist(self.x_axis_combo_tag) else "Time"
         frame_list = []
         for i, filename in enumerate(self.current_list):
             if filename not in self.image_cache:
@@ -1045,7 +1099,7 @@ class ImageContainerWin(WindowBase):
             frame_list.append({
                 "image":    self.image_cache[filename],
                 "filename": filename,
-                "x":        self._get_x_value(filename, i),
+                "x":        self._get_x_value(filename, i, mode=mode),
             })
 
         if not frame_list:
@@ -1087,6 +1141,7 @@ class ImageContainerWin(WindowBase):
         self._roi_cache = {}
         self.frame_counter = 0
         self.current_list = []
+        self._current_index_map = {}
         self.groups = ["All"]
         
         # Reset UI
@@ -1153,7 +1208,7 @@ class ImageContainerWin(WindowBase):
         
         try:
             files = [f for f in os.listdir(self.folder_path) if f.lower().endswith('.png')]
-            files.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)])
+            files.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in _NAT_SORT_RE.split(s)])
         except Exception as e:
             logger.error(f"Error listing files: {e}")
             self._hide_progress()
@@ -1203,10 +1258,11 @@ class ImageContainerWin(WindowBase):
         name_no_ext = os.path.splitext(filename)[0]
         parts = name_no_ext.split('_')
         
-        meta = {
+        meta: dict[str, Any] = {
             'id': 0,
             'group': 'Unknown',
-            'A': 0
+            'A': 0,
+            'time': None,
         }
         
         try:
@@ -1215,6 +1271,10 @@ class ImageContainerWin(WindowBase):
                 if parts[0].isdigit():
                     meta['id'] = int(parts[0])
                 
+                # Time (last part if digits)
+                if parts[-1].isdigit():
+                    meta['time'] = int(parts[-1])
+
                 # Group: Remove 'G' prefix if present
                 if len(parts) > 1:
                     raw_group = parts[1]
@@ -1224,7 +1284,7 @@ class ImageContainerWin(WindowBase):
                         meta['group'] = raw_group
                         
                 # Extract A value via Regex: looks for _A123_ or -A123. or 0_A123
-                a_match = re.search(r'[_\-]A(\d+(?:\.\d+)?)(?:[_\-]|$)', f"_{name_no_ext}_")
+                a_match = _A_VALUE_RE.search(f"_{name_no_ext}_")
                 if a_match:
                     val_str = a_match.group(1)
                     meta['A'] = float(val_str) if '.' in val_str else int(val_str)
@@ -1561,14 +1621,13 @@ class ImageContainerWin(WindowBase):
         self._update_list_ui()
         logger.success(f"Imported {len(images)} images.")
 
-    def _apply_filters(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any) -> None:
+    def _apply_filters(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, **kwargs: Any) -> None:
         selected_group = dpg.get_value(self.group_combo_tag)
         filter_text = dpg.get_value(self.filter_input_tag) # General Filter Text
         
         should_emit_fo_fm = False
         # If the combo box triggered this, emit the group change/clear command
         if sender == self.group_combo_tag and selected_group:
-            from core.app_state import app_state
             if selected_group != "All" and self.folder_path:
                 json_path = os.path.join(self.folder_path, f"{selected_group}.json")
                 if not os.path.exists(json_path) and selected_group.startswith("G"):
@@ -1617,25 +1676,24 @@ class ImageContainerWin(WindowBase):
 
         
         filtered = []
+        filter_lower = filter_text.lower() if filter_text else ""
+        check_group = selected_group != "All" and selected_group is not None
         
         # Filter based on the sorted keys of image_cache (already natsorted or insertion order)
         for f in self.image_cache.keys():
-            meta = self.metadata_cache.get(f, {})
-            
-            # Group Filter
-            if selected_group != "All" and selected_group is not None:
-                if meta.get('group', 'Unknown') != selected_group:
+            if check_group:
+                meta = self.metadata_cache.get(f)
+                if (meta.get('group', 'Unknown') if meta else 'Unknown') != selected_group:
                     continue
             
             # General Filename Filter (Contains)
-            if filter_text:
-                # Case insensitive substring match against FILENAME
-                if filter_text.lower() not in f.lower():
-                    continue
+            if filter_lower and filter_lower not in f.lower():
+                continue
             
             filtered.append(f)
             
         self.current_list = filtered
+        self._current_index_map = {f: i for i, f in enumerate(filtered)}
         dpg.configure_item(self.listbox_tag, items=self.current_list)
         dpg.set_value(self.count_text_tag, f"{len(filtered)} images")
         
@@ -1643,59 +1701,60 @@ class ImageContainerWin(WindowBase):
             if len(self.current_list) >= 2:
                 # Select first image
                 dpg.set_value(self.listbox_tag, self.current_list[0])
-                self._on_list_select(None, self.current_list[0])
+                self._on_list_select(None, self.current_list[0], idx=0)
                 
                 # Small delay then select second image
                 def select_second():
-                    dpg.set_value(self.listbox_tag, self.current_list[1])
-                    self._on_list_select(None, self.current_list[1])
+                    if len(self.current_list) >= 2:
+                        dpg.set_value(self.listbox_tag, self.current_list[1])
+                        self._on_list_select(None, self.current_list[1], idx=1)
                 threading.Timer(0.1, select_second).start()
                 logger.info(f"Auto-selected first two images of group '{selected_group}': {self.current_list[0]} and {self.current_list[1]}")
 
-    def _on_list_select(self, sender: Any, app_data: Any, user_data: Any = None, *args: Any, idx: int | None = None) -> None:
+    def _on_list_select(self, sender: Any = None, app_data: Any = None, user_data: Any = None, *args: Any, idx: int | None = None, **kwargs: Any) -> None:
         if not app_data: 
             logger.warning("No app_data received in _on_list_select")
             return
         
         if app_data not in self.image_cache:
             logger.warning(f"'{app_data}' not found in image_cache")
+            return
 
-        if app_data in self.image_cache:
-            img = self.image_cache[app_data]
-            # Send to frame output
-            for module in self.connections.get("Frame", []):
-                try:
-                    if hasattr(module, 'input_cb'):
-                        module.input_cb(img)
-                except Exception as e:
-                    logger.error(f"Error sending frame to {module.label}: {e}")
-            
-            # Send to image name output
-            for module in self.connections.get("Image Name", []):
-                try:
-                    if hasattr(module, 'input_cb'):
-                        module.input_cb(data=app_data, data_type=IOTypes.TEXT)
-                except Exception as e:
-                    logger.error(f"Error sending image name to {module.label}: {e}")
-            
-            # Emit position (index in current list) via CMD output
-            if idx is None or not (0 <= idx < len(self.current_list) and self.current_list[idx] == app_data):
-                idx = self.current_list.index(app_data) if app_data in self.current_list else None
+        img = self.image_cache[app_data]
+        # Send to frame output
+        for module in self.connections.get("Frame", []):
+            try:
+                if hasattr(module, 'input_cb'):
+                    module.input_cb(img)
+            except Exception as e:
+                logger.error(f"Error sending frame to {module.label}: {e}")
+        
+        # Send to image name output
+        for module in self.connections.get("Image Name", []):
+            try:
+                if hasattr(module, 'input_cb'):
+                    module.input_cb(data=app_data, data_type=IOTypes.TEXT)
+            except Exception as e:
+                logger.error(f"Error sending image name to {module.label}: {e}")
+        
+        # Emit position (index in current list) via CMD output
+        if idx is None or not (0 <= idx < len(self.current_list) and self.current_list[idx] == app_data):
+            idx = self._current_index_map.get(app_data)
 
-            if idx is not None:
-                x_val = self._get_x_value(app_data, idx)
-                self._emit_cmd({"action": "position", "value": x_val})
-                
-                # Also emit to Result connection to update the drag line on Lineplot if connected
-                pos_payload = {"action": "position", "value": x_val}
-                for module in self.connections.get("Result", []):
-                    if hasattr(module, 'input_cb'):
-                        try:
-                            module.input_cb(data=pos_payload, data_type=IOTypes.CMD_DICT)
-                        except Exception as e:
-                            logger.error(f"Error sending position to Result connection: {e}")
-            else:
-                logger.warning(f"'{app_data}' not in current_list? (List has {len(self.current_list)} items)")
+        if idx is not None:
+            x_val = self._get_x_value(app_data, idx)
+            pos_payload = {"action": "position", "value": x_val}
+            self._emit_cmd(pos_payload)
+            
+            # Also emit to Result connection to update the drag line on Lineplot if connected
+            for module in self.connections.get("Result", []):
+                if hasattr(module, 'input_cb'):
+                    try:
+                        module.input_cb(data=pos_payload, data_type=IOTypes.CMD_DICT)
+                    except Exception as e:
+                        logger.error(f"Error sending position to Result connection: {e}")
+        else:
+            logger.warning(f"'{app_data}' not in current_list? (List has {len(self.current_list)} items)")
 
     def _start_playback(self, *args: Any, **kwargs: Any) -> None:
         if self.playback_active:
@@ -1759,6 +1818,13 @@ class ImageContainerWin(WindowBase):
                 self.playback_thread.join(timeout=0.5)
             except Exception:
                 pass
+        for tag in [getattr(self, "progress_modal_tag", None), getattr(self, "handler_registry_tag", None)]:
+            if tag and dpg.does_item_exist(tag):
+                try:
+                    dpg.delete_item(tag)
+                except Exception:
+                    pass
+        super().on_close()
 
     def close(self) -> None:
         """Close window and unregister."""
@@ -1774,3 +1840,4 @@ class ImageContainerWin(WindowBase):
 ImageContainer_win = ImageContainerWin
 EXPORTED_CLASS = ImageContainerWin
 EXPORTED_NAME = "Image Container"
+__all__ = ["ImageContainerWin", "ImageContainer_win", "EXPORTED_CLASS", "EXPORTED_NAME"]
