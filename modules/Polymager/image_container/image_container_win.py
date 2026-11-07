@@ -161,6 +161,7 @@ class ImageContainerWin(WindowBase):
         self.progress_modal_tag = f"ic_progress_modal_{self.UUID}"
         self.progress_bar_tag = f"ic_progress_bar_{self.UUID}"
         self.progress_text_tag = f"ic_progress_text_{self.UUID}"
+        self.sub_windows = [self.progress_modal_tag]
         self.x_axis_combo_tag = f"ic_xaxis_combo_{self.UUID}"
         self.send_framelist_btn_tag = f"ic_send_framelist_{self.UUID}"
         self.clear_list_btn_tag = f"ic_clear_list_btn_{self.UUID}"
@@ -312,7 +313,7 @@ class ImageContainerWin(WindowBase):
             height=display_scaling.scale(120),
         ):
             with dpg.group(horizontal=True):
-                dpg.add_loading_indicator(radius=2.0)
+                dpg.add_loading_indicator(radius=display_scaling.scale(2.0))
                 dpg.add_text("Working...", tag=self.progress_text_tag)
             dpg.add_spacer(height=display_scaling.scale(10))
             dpg.add_progress_bar(tag=self.progress_bar_tag, width=-1)
@@ -1836,8 +1837,5 @@ class ImageContainerWin(WindowBase):
         self.close()
         super().destroy()
 
-
-ImageContainer_win = ImageContainerWin
 EXPORTED_CLASS = ImageContainerWin
 EXPORTED_NAME = "Image Container"
-__all__ = ["ImageContainerWin", "ImageContainer_win", "EXPORTED_CLASS", "EXPORTED_NAME"]
