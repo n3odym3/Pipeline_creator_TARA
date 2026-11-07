@@ -518,7 +518,7 @@ class Matplot_win(WindowBase):
         self._refresh_series_checkboxes()
         self._update_preview_table(self._last_processed_df)
 
-    def _on_script_mode_toggle(self, sender: Any, app_data: Any) -> None:
+    def _on_script_mode_toggle(self, sender: Any, app_data: Any, *args, **kwargs) -> None:
         self.use_custom_script = bool(app_data)
         if dpg.does_item_exist(self.data_std_group_tag):
             (dpg.hide_item if self.use_custom_script else dpg.show_item)(self.data_std_group_tag)
@@ -526,22 +526,22 @@ class Matplot_win(WindowBase):
             (dpg.show_item if self.use_custom_script else dpg.hide_item)(self.data_script_group_tag)
         self._rerender()
 
-    def _on_filter_expr_change(self, sender: Any, app_data: Any) -> None:
+    def _on_filter_expr_change(self, sender: Any, app_data: Any, *args, **kwargs) -> None:
         self.filter_expr = str(app_data)
         self._rerender()
 
-    def _on_group_slice_change(self, sender: Any, app_data: Any) -> None:
+    def _on_group_slice_change(self, sender: Any, app_data: Any, *args, **kwargs) -> None:
         self.group_slice = str(app_data)
         self._rerender()
 
-    def _on_agg_mode_change(self, sender: Any, app_data: Any) -> None:
+    def _on_agg_mode_change(self, sender: Any, app_data: Any, *args, **kwargs) -> None:
         self.agg_mode = str(app_data)
         self._rerender()
 
-    def _on_custom_script_change(self, sender: Any, app_data: Any) -> None:
+    def _on_custom_script_change(self, sender: Any, app_data: Any, *args, **kwargs) -> None:
         self.custom_script = str(app_data)
 
-    def _on_series_toggle(self, sender: Any, app_data: Any, user_data: str) -> None:
+    def _on_series_toggle(self, sender: Any, app_data: Any, user_data: str, *args, **kwargs) -> None:
         self.series_enabled[user_data] = bool(app_data)
         self._rerender()
 

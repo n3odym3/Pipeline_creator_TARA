@@ -247,7 +247,7 @@ class RoiManagerWin(WindowBase):
 			self.rois_dict[roi_uuid]["name"] = name
 			self._append_roi_row(roi_uuid, name, selected=selected)
 
-	def _on_drop_cb(self, sender: int | str, app_data: Any, user_data: Any) -> None:
+	def _on_drop_cb(self, sender: int | str, app_data: Any, user_data: Any, *args, **kwargs) -> None:
 		"""Handle drag and drop reordering: insert source before target."""
 		from loguru import logger
 
