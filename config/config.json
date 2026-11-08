@@ -15,8 +15,8 @@
         "path": "ressources/icon.ico"
     },
     "Login": {
-        "enabled": false,
-        "default_mode": "dev"
+        "enabled": true,
+        "default_mode": "user"
     },
     "UI": {
         "theme_name": "OCEAN_DARK",
@@ -37,8 +37,8 @@
     },
     "Paths": {
         "working_directory": null,
-        "default_pipeline": null,
-        "default_automation_script": "",
+        "default_pipeline": "",
+        "default_automation_script": "polymager_TARA_script.json",
         "show_loader_on_startup": true,
         "default_pipeline_folder": "pipelines",
         "default_scripts_folder": "scripts"
