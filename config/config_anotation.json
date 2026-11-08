@@ -13,7 +13,7 @@
             "values": [true, false]
         },
         "skip_import_validation": {
-            "description": "If enabled, skips import validation during module loading.",
+            "description": "If enabled, skips module health check (import and code validation) at application startup. Manual health checks from the Tools menu remain active.",
             "values": [true, false]
         }
     },
@@ -131,6 +131,34 @@
                 "description": "Rotation angle (in degrees) applied to the video feed of Alvium cameras.",
                 "values": [0, 90, 180, 270]
             }
+        }
+    },
+    "Viewers": {
+        "image_viewer": {
+            "texture_mode": {
+                "description": "Texture rendering mode for Image Viewer: 'raw' (high-frequency streaming) or 'static' (optimal for static images, 0 PCIe transfer when idle).",
+                "values": ["raw", "static"]
+            },
+            "preserve_aspect_ratio": {
+                "description": "Preserve image aspect ratio (true) or stretch image to fit the canvas (false).",
+                "values": [true, false]
+            }
+        },
+        "video_viewer": {
+            "texture_mode": {
+                "description": "Texture rendering mode for Video Viewer: 'raw' (high-frequency streaming) or 'static' (recreate on update).",
+                "values": ["raw", "static"]
+            },
+            "preserve_aspect_ratio": {
+                "description": "Preserve video aspect ratio (true) or stretch video to fit the canvas (false).",
+                "values": [true, false]
+            }
+        }
+    },
+    "SequenceProcessor": {
+        "end_seq_cmd": {
+            "description": "Command string or list of commands (e.g. 'R0G0B0W0IR1000' or ['R0', 'det 0']) sent automatically at the end of a sequence.",
+            "values": null
         }
     }
 }

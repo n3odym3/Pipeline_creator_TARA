@@ -8,3 +8,4 @@ experiments/
 *.pyo
 site/
 *.pth
+*.iss

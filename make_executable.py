@@ -5,7 +5,7 @@ import ast
 import json
 from pathlib import Path
 
-MAIN_PIPELINE = None
+MAIN_PIPELINE = "Polymager_TARA.json"
 OUTPUT_DIR = "C:/Users/gerva/Desktop/Pipeline_creator_compil_TARA"
 
 def _get_module_metadata_statically_for_build(filepath):

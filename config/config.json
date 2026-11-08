@@ -15,11 +15,11 @@
         "path": "ressources/icon.ico"
     },
     "Login": {
-        "enabled": true,
-        "default_mode": "user"
+        "enabled": false,
+        "default_mode": "dev"
     },
     "UI": {
-        "theme_name": "DEFAULT",
+        "theme_name": "OCEAN_DARK",
         "colorblind_type": "none",
         "mascot": true,
         "enable_highlight": true
@@ -31,14 +31,14 @@
     },
     "Window": {
         "vsync": true,
-        "minimize_to_tray": false,
-        "tray_offscreen": false,
+        "minimize_to_tray": true,
+        "tray_offscreen": true,
         "show_console": true
     },
     "Paths": {
-        "working_directory": "/experiments",
+        "working_directory": null,
         "default_pipeline": null,
-        "default_automation_script": "scripts/polymager_TARA_script.json",
+        "default_automation_script": "",
         "show_loader_on_startup": true,
         "default_pipeline_folder": "pipelines",
         "default_scripts_folder": "scripts"
@@ -50,5 +50,18 @@
         "Alvium": {
             "rotation": 90
         }
+    },
+    "Viewers": {
+        "image_viewer": {
+            "texture_mode": "raw",
+            "preserve_aspect_ratio": false
+        },
+        "video_viewer": {
+            "texture_mode": "raw",
+            "preserve_aspect_ratio": false
+        }
+    },
+    "SequenceProcessor": {
+        "end_seq_cmd": "A0"
     }
 }
