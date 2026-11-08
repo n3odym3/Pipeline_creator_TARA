@@ -9,3 +9,4 @@ experiments/
 site/
 *.pth
 *.iss
+.cache/
