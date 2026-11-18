@@ -16,7 +16,7 @@ class TaraWin(WindowBase):
     od50_config: dict[str, dict[str, Any]]
     naming_fields_keys: list[str]
     field_config: dict[str, dict[str, Any]]
-    _persistent_fields: list[str]
+    persistent_fields: list[str]
     naming_values: dict[str, Any]
     target_signal: float
     protocol_step: int
@@ -131,7 +131,7 @@ class TaraWin(WindowBase):
         self.naming_fields_keys = list(self.od50_config.keys())
         # Store field config for easy access
         self.field_config = self.od50_config
-        self._persistent_fields = ["label", "target_signal", "protocol_step", "pipeline_mode", "naming_values"]
+        self.persistent_fields = ["label", "target_signal", "protocol_step", "pipeline_mode", "naming_values"]
 
         if outputs is None:
             outputs = {

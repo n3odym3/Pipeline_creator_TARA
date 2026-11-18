@@ -9,27 +9,22 @@ from core.processing_base import ProcessingBase
 class Processor_Template(ProcessingBase):
     """
     A template for building multiprocessing background worker processes.
-    Subclasses ProcessingBase to leverage process isolation, input queues,
-    and parameter tuning capabilities.
     """
 
-    def __init__(
-        self,
-        params: Optional[Dict[str, Any]] = None,
-        *,
-        buffer_size: int = 10,
-        drop_policy: str = "drop_new",
-        daemon: bool = True,
-    ) -> None:
+    # 1. Process Configuration (Class defaults - can also be overridden via kwargs)
+    buffer_size = 10
+    drop_policy = "drop_new"  # Options: 'drop_new', 'drop_oldest', or 'block'
+    daemon = True
+
+    def __init__(self, params: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
         """
         Initialize the processor process.
+
+        Args:
+            params: Optional initial parameters dictionary passed to the worker.
+            **kwargs: Extra configuration options forwarded to ProcessingBase.
         """
-        super().__init__(
-            params=params,
-            buffer_size=buffer_size,
-            drop_policy=drop_policy,
-            daemon=daemon,
-        )
+        super().__init__(params=params, **kwargs)
 
     def _process_data(self, data: Any, params: Dict[str, Any]) -> Any:
         """

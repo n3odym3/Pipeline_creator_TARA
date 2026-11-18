@@ -17,104 +17,109 @@ Convention: suffix the filename with `_win` to indicate it is a visual node.
 
 ## Minimal Template
 
+This template corresponds to `template_and_doc/module_template.py`:
+
 ```python
 from __future__ import annotations
-from typing import Any, Dict, Tuple, Optional
+
+from typing import Any, Dict, List, Optional, Tuple
+
 import dearpygui.dearpygui as dpg
-from core.window_base import WindowBase
+from loguru import logger
+
 from core.input_output_types import IOTypes
+from core.window_base import WindowBase
 
-class MyNode(WindowBase):
+
+class Template_win(WindowBase):
     """
-    Short description of what this node does.
+    A basic example module window using the WindowBase system.
+
+    Demonstrates:
+    - Declaring window defaults (label, win_width, win_height)
+    - Declaring input/output types (checked by Module Health Check)
+    - Saving persistent fields (e.g., default_number)
+    - Handling incoming data via input_cb
+    - Sending messages downstream to connected modules
+    - Adapting UI permissions based on app_state mode
     """
 
-    def __init__(
-        self,
-        label: str = "My Node",
-        win_width: int = 300,
-        win_height: int = 200,
-        pos: Tuple[int, int] = (50, 50),
-        uuid: Optional[str] = None,
-        outputs: Optional[Dict[str, Any]] = None,
-        visible: bool = True,
-        # ↓ Add your own persistent parameters here
-        threshold: float = 0.5,
-    ) -> None:
+    # 1. Window Configuration (Class defaults - can also be passed via kwargs)
+    label = "Template"
+    win_width = 300
+    win_height = 200
 
-        super().__init__(
-            label=label, pos=pos,
-            win_width=win_width, win_height=win_height,
-            uuid=uuid, outputs=outputs, visible=visible
-        )
+    # 2. Input/Output definitions (Required by Module Health Check)
+    accepted_input_types = [IOTypes.TEXT]
+    outputs = {
+        "TEXT": IOTypes.TEXT,
+        "NUMBER": IOTypes.NUMBER,
+    }
 
-        # 1. Persistent fields (saved to flow JSON)
-        self._persistent_fields = ["label", "threshold"]
+    # 3. Persistent fields saved into pipeline JSON
+    persistent_fields = ["label", "default_number"]
 
-        # 2. Accepted input types
-        self.accepted_input_types = [IOTypes.NUMBER]
+    def __init__(self, default_number: int = 10, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
 
-        # 3. Output terminals
-        self.outputs = {"RESULT": IOTypes.NUMBER}
-        self.connections = {k: [] for k in self.outputs}
+        self.default_number = default_number
+        self.btn_tag = f"template_btn_{self.UUID}"
+        self.number_tag = f"template_number_{self.UUID}"
 
-        # 4. Unique DPG tags
-        self._slider_tag = f"my_slider_{self.UUID}"
-        self.threshold = threshold
+        # Build DPG Window UI using the convenient self.window() context manager
+        with self.window():
+            dpg.add_button(tag=self.btn_tag, label="Hello world", callback=self.trigger_cb)
 
-        # 5. Build the DPG window
-        with dpg.window(
-            label=self.label,
-            width=self.win_width,
-            height=self.win_height,
-            pos=self.pos,
-            tag=self.winID,
-            show=self.visible,
-        ):
-            dpg.add_text("Threshold:")
-            dpg.add_slider_float(
-                tag=self._slider_tag,
-                default_value=self.threshold,
-                min_value=0.0, max_value=1.0,
-                callback=self._on_slider_changed,
+            dpg.add_input_int(
+                tag=self.number_tag,
+                default_value=self.default_number,
+                callback=lambda sender, value: setattr(self, "default_number", value),
             )
 
-        # 6. Apply privilege visibility
+        # Always refresh permissions after UI creation
         self.update_permission()
 
-    # ── Callbacks ──────────────────────────────────────────────────────────
+    def update_permission(self) -> None:
+        """
+        Adapts the module UI based on the application mode:
+        - 'user'     : Restricted access (e.g., read-only fields, hidden buttons).
+        - 'advanced' : Standard access.
+        - 'dev'      : Full access to all internals.
+        """
+        from core.app_state import app_state
 
-    def _on_slider_changed(self, sender: Any, value: float) -> None:
-        self.threshold = value
+        mode = app_state.mode
+
+        # Example 1: Hide an element in 'user' mode
+        if dpg.does_item_exist(self.btn_tag):
+            dpg.configure_item(self.btn_tag, show=(mode != "user"))
+
+        # Example 2: Lock editing in 'user' mode
+        if dpg.does_item_exist(self.number_tag):
+            is_readonly = mode == "user"
+            dpg.configure_item(self.number_tag, readonly=is_readonly, enabled=not is_readonly)
+
+        # Example 3: Hide the entire window if needed (e.g., dev-only module)
+        if mode == "user":
+            dpg.hide_item(self.winID)
 
     def input_cb(self, *args: Any, **kwargs: Any) -> None:
-        """Called when upstream nodes send data through a wire."""
-        data = kwargs.get("data") or (args[0] if args else None)
-        if isinstance(data, (int, float)):
-            result = data * self.threshold
-            self._emit("RESULT", result)
+        """Processes incoming data from upstream connected nodes."""
+        logger.debug(f"{self.winID} received input: args={args}, kwargs={kwargs}")
 
-    def update_permission(self) -> None:
-        """Show/hide or enable/disable items based on privilege mode."""
-        from core.app_state import app_state
-        is_user = (app_state.mode == "user")
-        if dpg.does_item_exist(self._slider_tag):
-            dpg.configure_item(self._slider_tag, enabled=not is_user)
-
-    # ── Helpers ────────────────────────────────────────────────────────────
-
-    def _emit(self, output_name: str, data: Any) -> None:
-        """Push data to all downstream nodes connected to output_name."""
-        from core.module_registry import MODULES_REGISTRY
-        for uuid in self.connections.get(output_name, []):
-            target = MODULES_REGISTRY.get(uuid)
-            if target:
-                target.input_cb(data=data, data_type=self.outputs[output_name])
+    def trigger_cb(self, *args: Any, **kwargs: Any) -> None:
+        """Sends data downstream to connected modules."""
+        for idx, output_key in enumerate(self.outputs):
+            connected_modules = self.connections.get(output_key, [])
+            for module in connected_modules:
+                if idx == 0:
+                    module.input_cb("Hello World")
+                elif idx == 1:
+                    module.input_cb(self.default_number)
 
 
-# Required by the module registry
-EXPORTED_CLASS = MyNode
-EXPORTED_NAME  = "My Node"
+EXPORTED_CLASS = Template_win
+EXPORTED_NAME = "Template"
 ```
 
 ---
@@ -133,7 +138,7 @@ EXPORTED_NAME  = "My Node"
 | `self.win_height` | `int` | Window height in pixels |
 | `self.visible` | `bool` | Whether the window is currently shown |
 | `self.connections` | `dict` | Maps output name → list of downstream UUIDs |
-| `self._persistent_fields` | `list` | Field names to save/restore in flow JSON |
+| `self.persistent_fields` | `list` | Field names to save/restore in flow JSON |
 | `self.accepted_input_types` | `list` | IOTypes this node accepts as input |
 | `self.outputs` | `dict` | Maps output name → IOType |
 
@@ -143,7 +148,7 @@ EXPORTED_NAME  = "My Node"
 
 If your node should support being "fused" into a `FusionManager` tab, `WindowBase` handles this automatically. The fusion manager will hide the standalone window and embed its children inside a tab panel.
 
-No extra code is required, just ensure all your DPG children are created inside the `dpg.window(tag=self.winID)` block.
+No extra code is required, just ensure all your DPG children are created inside the `with self.window():` context block.
 
 ---
 

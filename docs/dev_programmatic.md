@@ -17,7 +17,7 @@ To connect a **Hello World** module to a **Text Viewer** module in code (mirrori
 
 1. Instantiate the module classes (`HelloWorld_win` and `Text_viewer_win`).
 2. Pass arguments like `label`, `pos`, `win_width`, and `win_height`.
-3. Call `helloworld.connect_to(text_viewer, input_pin_index)` to link them.
+3. Call `helloworld.connect_to(text_viewer, output)` (passing an output name `str` or output index `int` of `helloworld`) to link them.
 
 Here is the helper script from `template_and_doc/manual_layout.py`:
 
@@ -30,15 +30,15 @@ def create_windows() -> None:
     helloworld = HelloWorld_win(label="Hello World", pos=(50, 50), win_width=300, win_height=200)
     text_viewer = Text_viewer_win(label="Text Viewer", pos=(350, 50), win_width=400, win_height=300)
 
-    # 2. Programmatically connect output from helloworld to input index 0 of text_viewer
+    # 2. Programmatically connect output index 0 of helloworld to text_viewer
     helloworld.connect_to(text_viewer, 0)
 ```
 
 ---
 
-## Loading a Programmatic Layout
+## Loading a Programmatic Pipeline
 
-To run your programmatic layout in the application, import and run it during startup. For example, in the initialization phase (e.g. inside `main_win` or `main.py` when preparing the UI):
+To run your programmatic pipeline in the application, import and run it during startup. For example, in the initialization phase (e.g. inside `main_win` or `main.py` when preparing the UI):
 
 ```python
 from template_and_doc import manual_layout

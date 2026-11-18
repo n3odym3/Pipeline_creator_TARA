@@ -32,7 +32,7 @@ class FluoSelectorWin(WindowBase):
     """
 
     accepted_input_types: list[Any]
-    _persistent_fields: list[str]
+    persistent_fields: list[str]
     _export_folder: str | None
     _current_group: str
     _f0: np.ndarray | None
@@ -110,7 +110,7 @@ class FluoSelectorWin(WindowBase):
             IOTypes.FOLDER_PATH,
             IOTypes.TEXT,
         ]
-        self._persistent_fields = ["label"]
+        self.persistent_fields = ["label"]
 
         # Export settings
         self._export_folder = None

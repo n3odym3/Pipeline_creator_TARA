@@ -1,0 +1,16 @@
+var exp_name=WTAGH4HLLLDNDN2805,
+
+var photo_exp=50000,
+var timelapse_delay=150s,
+var dark_relax_delay=60s,
+var dark_relax_rep=5,
+var grad_timelapse_rep=20,
+
+var photo_on=white2 512,
+var photo_off=white2 0,
+var grad_on=white 65,
+var grad_off=white 0,
+
+Gexp_name,R,
+dark_relax_rep(photo_on,Tphoto_exp,photo_off,V,dark_relax_delay),
+grad_timelapse_rep(photo_on,Tphoto_exp,photo_off,V,grad_on,timelapse_delay,grad_off)

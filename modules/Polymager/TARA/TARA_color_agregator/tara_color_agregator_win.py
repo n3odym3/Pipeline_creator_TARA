@@ -35,7 +35,7 @@ class TaraColorAggregatorWin(WindowBase):
     accepted_input_types: list[IOTypes]
     outputs: dict[str, IOTypes]
     connections: dict[str, list]
-    _persistent_fields: list[str]
+    persistent_fields: list[str]
     metadata_keys: list[str]
     color_keys: list[str]
     editable_fields: dict[str, bool]
@@ -76,7 +76,7 @@ class TaraColorAggregatorWin(WindowBase):
         self.accepted_input_types = [IOTypes.CMD_DICT, IOTypes.FOLDER_PATH]
         self.outputs = {}  # no outputs
         self.connections = {k: [] for k in self.outputs}
-        self._persistent_fields = ["label"]
+        self.persistent_fields = ["label"]
 
         # --- state ---
         self.metadata_keys = []  # ordered list of metadata field names

@@ -24,7 +24,7 @@ class TaraAggregatorWin(WindowBase):
     accepted_input_types: list[IOTypes]
     outputs: dict[str, IOTypes]
     connections: dict[str, list]
-    _persistent_fields: list[str]
+    persistent_fields: list[str]
     current_metadata: dict[str, Any]
     metadata_keys: list[str]
     editable_fields: dict[str, bool]
@@ -63,7 +63,7 @@ class TaraAggregatorWin(WindowBase):
         self.accepted_input_types = [IOTypes.CMD_DICT, IOTypes.SAMPLE, IOTypes.FOLDER_PATH, IOTypes.ANY]
         self.outputs = {}  # No outputs
         self.connections = {k: [] for k in self.outputs}
-        self._persistent_fields = ["label"]
+        self.persistent_fields = ["label"]
 
         self.current_metadata = {}
         self.metadata_keys = []

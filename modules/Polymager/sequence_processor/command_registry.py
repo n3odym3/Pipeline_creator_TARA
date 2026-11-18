@@ -137,7 +137,7 @@ def cmd_act(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Set act to {intensity}",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"act" : intensity
         }
@@ -162,7 +162,7 @@ def cmd_det(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Set det to {pwm}",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"send" : f"det {pwm}"
         }
@@ -177,7 +177,7 @@ def cmd_far_red(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Set Far Red to {intensity}",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"send" : f"fr {intensity}"
         }
@@ -194,7 +194,7 @@ def cmd_offset_detection(cmd: str, match: re.Match[str] | None) -> dict[str, obj
 	return {
 		"valid": True,
 		"description": f"ODet of {det_time}µs after {flash_time}µs flash",
-		"duration": 1,
+		"duration": 0,
 		"captures": [f"OD_{flash_time}"],
 		"cmd": {
 			"send": f"odet {det_time} {flash_time}"
@@ -240,15 +240,34 @@ def cmd_fvfm(cmd: str) -> dict[str, object]:
 		}
 	}
 
-@register_command(r"(?i)^d$")
-def cmd_d(cmd: str) -> dict[str, object]:
+@register_command(r"(?i)^d(?:\s*(\d+)(?:\s+(\d+))?)?\s*$")
+def cmd_d(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
+	if match is None:
+		return {"description": "Detection: D or D [pdur] [ddim]"}
+
+	from core.app_state import app_state
+
+	pdur_val = match.group(1)
+	ddim_val = match.group(2)
+
+	det_state = app_state.get("detector")
+	default_pdur = int(det_state) if det_state is not None and int(det_state) > 0 else 250
+	pdur = int(pdur_val) if pdur_val is not None else default_pdur
+
+	ddim_state = app_state.get("ddim")
+	default_ddim = int(ddim_state) if ddim_state is not None and int(ddim_state) >= 0 else 512
+	ddim = int(ddim_val) if ddim_val is not None else default_ddim
+
 	return {
 		"valid": True,
-		"description": "Test Detection",
+		"description": f"Detection Dur:{pdur} Dim:{ddim}",
 		"duration": 1,
-		"captures": ["D"],
+		"captures": ["F0"],
 		"cmd": {
-			"testdet": True
+			"send": f"detection {pdur} {ddim}",
+			"detection": True,
+			"pdur": pdur,
+			"ddim": ddim,
 		}
 	}
 
@@ -374,7 +393,7 @@ def cmd_white2(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Set White Light 2 to {intensity}",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"white2" : intensity
         }
@@ -400,7 +419,7 @@ def cmd_white(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Set White Light to {intensity}",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"white" : intensity
         }
@@ -458,7 +477,7 @@ def cmd_light_channels(cmd: str, match: re.Match[str] | None) -> dict[str, objec
 	return {
 		"valid": True,
 		"description": f"Set Light " + ", ".join(descriptions),
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"light": payload,
 			"r": payload["r"],
@@ -512,7 +531,7 @@ def cmd_rgbw(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Set RGBW " + ", ".join(descriptions),
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"light": payload,
 			"r": payload["r"],
@@ -577,7 +596,7 @@ def cmd_send(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Send raw command: '{payload}'",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"send": payload
 		}
@@ -594,7 +613,7 @@ def cmd_ox(cmd: str, match: re.Match[str] | None) -> dict[str, object]:
 	return {
 		"valid": True,
 		"description": f"Oxygen recording: {'ON' if active else 'OFF'}",
-		"duration": 1,
+		"duration": 0,
 		"cmd": {
 			"ox": active,
 			"polling": active,

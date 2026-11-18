@@ -107,7 +107,7 @@ class Image_viewer_win(WindowBase):
 
         # Locks for thread synchronization
         self.lock = threading.Lock()
-        self._thread_lock = threading.Lock()
+        self._thread_lock = threading.RLock()
         self.frame_lock = threading.Lock()
         self.update_event = threading.Event()
 
@@ -980,6 +980,42 @@ class Image_viewer_win(WindowBase):
 
         return self._texture_buffer
 
+    def _refresh_config_on_resize(self) -> None:
+        """
+        Re-evaluates in-memory config on resolution changes or texture re-creations.
+        Allows dynamically updating texture_mode ('raw' vs 'static') and aspect ratio
+        without needing to restart the application.
+        """
+        try:
+            viewer_cfg = config.get("Viewers", {}).get("image_viewer", {})
+            default_mode = viewer_cfg if isinstance(viewer_cfg, str) else viewer_cfg.get("texture_mode", "raw")
+            new_mode = str(default_mode).lower() if default_mode else "raw"
+            if new_mode in ("raw", "static") and new_mode != self.texture_mode:
+                logger.info(
+                    f"ImageViewer [{self.label}]: Live-updated texture_mode from config: "
+                    f"'{self.texture_mode}' -> '{new_mode}'"
+                )
+                with self._thread_lock:
+                    self.texture_mode = new_mode
+                    self._texture_initialized = False
+
+            # Check if preserve_aspect_ratio was updated in config
+            preserve = None
+            if isinstance(viewer_cfg, dict):
+                preserve = viewer_cfg.get("preserve_aspect_ratio")
+            if preserve is None:
+                preserve = config.get("Viewers", {}).get("preserve_aspect_ratio")
+            if preserve is not None:
+                new_preserve = (
+                    preserve.strip().lower() in ("true", "1", "yes", "preserve")
+                    if isinstance(preserve, str)
+                    else bool(preserve)
+                )
+                if new_preserve != self.preserve_aspect_ratio:
+                    self.set_preserve_aspect_ratio(new_preserve)
+        except Exception as e:
+            logger.debug(f"Failed to refresh texture mode from config on resize: {e}")
+
     def init_viewer(self, width: int, height: int) -> None:
         """Initializes DearPyGui image display area (main thread safe)."""
         if threading.current_thread() is threading.main_thread():
@@ -989,6 +1025,7 @@ class Image_viewer_win(WindowBase):
 
     def _init_viewer_internal(self, width: int, height: int) -> None:
         with self._thread_lock:
+            self._refresh_config_on_resize()
             self._texture_initialized = False
             self.texture_width = width
             self.texture_height = height
@@ -1486,6 +1523,10 @@ class Image_viewer_win(WindowBase):
                 processed, _, _ = self._prepare_processed_frame(frame)
 
                 h, w = processed.shape[:2]
+                dim_changed = (h != self.texture_height or w != self.texture_width or not self._texture_initialized)
+                if dim_changed:
+                    self._refresh_config_on_resize()
+
                 texture_data = self.convert_to_texture(processed)
 
                 if self.texture_mode == "static":
