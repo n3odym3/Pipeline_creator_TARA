@@ -1,0 +1,34 @@
+Windows fatal exception: access violation
+
+Current thread 0x000015a0 [Thread-15 (init_task)] (most recent call first):
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\site-packages\dearpygui\dearpygui.py", line 8284 in does_item_exist
+  File "C:\Users\gerva\OneDrive\Documents\GitHub\Pipeline_creator_TARA\modules\Camera\Alvium\Alvium_win.py", line 374 in init_task
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1025 in run
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1083 in _bootstrap_inner
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1045 in _bootstrap
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\_pydev_bundle\pydev_monkey.py", line 1134 in __call__
+
+Thread 0x0000806c [pydevd.CheckAliveThread] (most recent call first):
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\pydevd.py", line 2489 in __wait_for_threads_to_finish
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\pydevd.py", line 2553 in dispose_and_kill_all_pydevd_threads
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\pydevd.py", line 334 in _on_run
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\_pydevd_bundle\pydevd_daemon_thread.py", line 53 in run
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1083 in _bootstrap_inner
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1045 in _bootstrap
+
+Thread 0x0000927c [pydevd.Reader] (most recent call first):
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 376 in wait
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 671 in wait
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\pydevd.py", line 2472 in __wait_for_threads_to_finish
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\pydevd.py", line 2528 in dispose_and_kill_all_pydevd_threads
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\_pydevd_bundle\pydevd_comm.py", line 324 in _terminate_on_socket_close
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\_pydevd_bundle\pydevd_comm.py", line 249 in _on_run
+  File "c:\Users\gerva\.antigravity-ide\extensions\ms-python.debugpy-2026.6.0-win32-x64\bundled\libs\debugpy\_vendored\pydevd\_pydevd_bundle\pydevd_daemon_thread.py", line 53 in run
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1083 in _bootstrap_inner
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1045 in _bootstrap
+
+Thread 0x00003f80 (most recent call first):
+  File "c:\Users\gerva\.conda\envs\PipelineCreator\Lib\threading.py", line 1584 in _shutdown
+
+Current thread's C stack trace (most recent call first):
+  <cannot get C stack on this system>
