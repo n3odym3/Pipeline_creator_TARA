@@ -53,11 +53,11 @@
     },
     "Viewers": {
         "image_viewer": {
-            "texture_mode": "raw",
+            "texture_mode": "static",
             "preserve_aspect_ratio": false
         },
         "video_viewer": {
-            "texture_mode": "raw",
+            "texture_mode": "static",
             "preserve_aspect_ratio": false
         }
     },
